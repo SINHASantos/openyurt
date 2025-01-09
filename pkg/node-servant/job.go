@@ -46,17 +46,11 @@ func RenderNodeServantJob(action string, renderCtx map[string]string, nodeName s
 	case "revert":
 		servantJobTemplate = RevertServantJobTemplate
 		jobBaseName = RevertJobNameBase
-	case "preflight-convert":
-		servantJobTemplate = ConvertPreflightJobTemplate
-		jobBaseName = ConvertPreflightJobNameBase
-	case "config-control-plane":
-		servantJobTemplate = ConfigControlPlaneJobTemplate
-		jobBaseName = ConfigControlPlaneJobNameBase
 	}
 
 	tmplCtx["jobName"] = jobBaseName + "-" + nodeName
 	tmplCtx["nodeName"] = nodeName
-	jobYaml, err := tmplutil.SubsituteTemplate(servantJobTemplate, tmplCtx)
+	jobYaml, err := tmplutil.SubstituteTemplate(servantJobTemplate, tmplCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +61,7 @@ func RenderNodeServantJob(action string, renderCtx map[string]string, nodeName s
 	}
 	srvJob, ok := srvJobObj.(*batchv1.Job)
 	if !ok {
-		return nil, fmt.Errorf("fail to assert yurtctl-servant job")
+		return nil, fmt.Errorf("could not assert node-servant job")
 	}
 
 	return srvJob, nil
@@ -90,17 +84,13 @@ func validate(action string, tmplCtx map[string]string, nodeName string) error {
 
 	switch action {
 	case "convert":
-		keysMustHave := []string{"node_servant_image", "yurthub_image", "joinToken"}
+		keysMustHave := []string{"node_servant_image", "joinToken"}
 		return checkKeys(keysMustHave, tmplCtx)
 	case "revert":
 		keysMustHave := []string{"node_servant_image"}
 		return checkKeys(keysMustHave, tmplCtx)
-	case "preflight-convert", "config-control-plane":
-		keysMustHave := []string{"node_servant_image"}
-		return checkKeys(keysMustHave, tmplCtx)
-
 	default:
-		return fmt.Errorf("action invalied: %s ", action)
+		return fmt.Errorf("action invalid: %s ", action)
 	}
 }
 

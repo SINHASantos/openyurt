@@ -29,7 +29,7 @@ import (
 	coordclientset "k8s.io/client-go/kubernetes/typed/coordination/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -142,8 +142,8 @@ func (nl *nodeLeaseImpl) newLease(base *coordinationv1.Lease) *coordinationv1.Le
 				Namespace: corev1.NamespaceNodeLease,
 			},
 			Spec: coordinationv1.LeaseSpec{
-				HolderIdentity:       pointer.StringPtr(nl.holderIdentity),
-				LeaseDurationSeconds: pointer.Int32Ptr(nl.leaseDurationSeconds),
+				HolderIdentity:       ptr.To(nl.holderIdentity),
+				LeaseDurationSeconds: ptr.To(nl.leaseDurationSeconds),
 			},
 		}
 	} else {
@@ -162,7 +162,7 @@ func (nl *nodeLeaseImpl) newLease(base *coordinationv1.Lease) *coordinationv1.Le
 				},
 			}
 		} else {
-			klog.Errorf("failed to get node %q when trying to set owner ref to the node lease: %v", nl.holderIdentity, err)
+			klog.Errorf("could not get node %q when trying to set owner ref to the node lease: %v", nl.holderIdentity, err)
 		}
 	}
 	return lease

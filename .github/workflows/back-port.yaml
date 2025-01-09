@@ -11,7 +11,7 @@ jobs:
   # align with kubevela's choice https://github.com/oam-dev/kubevela/blob/master/.github/workflows/back-port.yaml
   build:
     name: Create backport PRs
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     permissions:
       contents: write # so it can comment
       pull-requests: write # so it can create pull requests
@@ -26,11 +26,11 @@ jobs:
       )
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Create Backport PR
-        uses: zeebe-io/backport-action@v1.1.0
+        uses: zeebe-io/backport-action@v1.4.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           github_workspace: ${{ github.workspace }}

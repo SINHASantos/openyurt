@@ -24,18 +24,14 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/spf13/pflag"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
 	"k8s.io/klog/v2"
 
+	"github.com/openyurtio/openyurt/pkg/node-servant/static-pod-upgrade/util"
 	"github.com/openyurtio/openyurt/pkg/yurtadm/constants"
 )
 
 const (
 	NODE_NAME     = "NODE_NAME"
-	KUBECONFIG    = "KUBECONFIG"
 	NodeNameSplit = "="
 )
 
@@ -66,7 +62,7 @@ func GetContentFormFile(filename string, regularExpression string) ([]string, er
 func GetSingleContentFromFile(filename string, regularExpression string) (string, error) {
 	contents, err := GetContentFormFile(filename, regularExpression)
 	if err != nil {
-		return "", fmt.Errorf("failed to read file %s, %w", filename, err)
+		return "", fmt.Errorf("could not read file %s, %w", filename, err)
 	}
 	if contents == nil {
 		return "", fmt.Errorf("no matching string %s in file %s", regularExpression, filename)
@@ -87,26 +83,17 @@ func EnsureDir(dirname string) error {
 	return os.MkdirAll(dirname, 0755)
 }
 
-// CopyFile copys sourceFile to destinationFile
+// CopyFile copies sourceFile to destinationFile
 func CopyFile(sourceFile string, destinationFile string, perm os.FileMode) error {
 	content, err := os.ReadFile(sourceFile)
 	if err != nil {
-		return fmt.Errorf("failed to read source file %s: %w", sourceFile, err)
+		return fmt.Errorf("could not read source file %s: %w", sourceFile, err)
 	}
 	err = os.WriteFile(destinationFile, content, perm)
 	if err != nil {
-		return fmt.Errorf("failed to write destination file %s: %w", destinationFile, err)
+		return fmt.Errorf("could not write destination file %s: %w", destinationFile, err)
 	}
 	return nil
-}
-
-// ReplaceRegularExpression matchs the regular expression and replace it with the corresponding string
-func ReplaceRegularExpression(content string, replace map[string]string) string {
-	for old, new := range replace {
-		reg := regexp.MustCompile(old)
-		content = reg.ReplaceAllString(content, new)
-	}
-	return content
 }
 
 // GetNodeName gets the node name based on environment variable, parameters --hostname-override
@@ -176,49 +163,6 @@ func GetHostname(hostnameOverride string) (string, error) {
 	return strings.ToLower(hostName), nil
 }
 
-// GenClientSet generates the clientset based on command option, environment variable,
-// file in $HOME/.kube or the default kubeconfig file
-func GenClientSet(flags *pflag.FlagSet) (*kubernetes.Clientset, error) {
-	kubeconfigPath, err := PrepareKubeConfigPath(flags)
-	if err != nil {
-		return nil, err
-	}
-
-	restCfg, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-	if err != nil {
-		return nil, err
-	}
-
-	return kubernetes.NewForConfig(restCfg)
-}
-
-// PrepareKubeConfigPath returns the path of cluster kubeconfig file
-func PrepareKubeConfigPath(flags *pflag.FlagSet) (string, error) {
-	kbCfgPath, err := flags.GetString("kubeconfig")
-	if err != nil {
-		return "", err
-	}
-
-	if kbCfgPath == "" {
-		kbCfgPath = os.Getenv(KUBECONFIG)
-	}
-
-	if kbCfgPath == "" {
-		if home := homedir.HomeDir(); home != "" {
-			homeKbCfg := filepath.Join(home, ".kube", "config")
-			if ok, _ := FileExists(homeKbCfg); ok {
-				kbCfgPath = homeKbCfg
-			}
-		}
-	}
-
-	if kbCfgPath == "" {
-		kbCfgPath = constants.KubeCondfigPath
-	}
-
-	return kbCfgPath, nil
-}
-
 // Exec execs the command
 func Exec(cmd *exec.Cmd) error {
 	if err := cmd.Start(); err != nil {
@@ -233,4 +177,50 @@ func Exec(cmd *exec.Cmd) error {
 // GetPodManifestPath return podManifestPath, use default value of kubeadm/minikube/kind. etc.
 func GetPodManifestPath() string {
 	return constants.StaticPodPath // /etc/kubernetes/manifests
+}
+
+func DeployStaticYaml(manifestList, templateList []string, podManifestPath string) error {
+	klog.Info("Deploying user edge static yaml")
+	if _, err := os.Stat(podManifestPath); err != nil {
+		if os.IsNotExist(err) {
+			err = os.MkdirAll(podManifestPath, os.ModePerm)
+			if err != nil {
+				return err
+			}
+		} else {
+			klog.Errorf("Describe dir %s fail: %v", podManifestPath, err)
+			return err
+		}
+	}
+
+	for i, template := range templateList {
+		manifestFile := filepath.Join(podManifestPath, util.WithYamlSuffix(manifestList[i]))
+		klog.Infof("static pod template: %s\n%s", manifestFile, template)
+		if err := os.WriteFile(manifestFile, []byte(template), 0600); err != nil {
+			return err
+		}
+	}
+
+	klog.Info("Deploy user edge static yaml is ok")
+	return nil
+}
+
+func RemoveStaticYaml(manifestList []string, podManifestPath string) error {
+	klog.Info("Removing user edge static yaml")
+	if _, err := os.Stat(podManifestPath); err != nil {
+		if os.IsNotExist(err) {
+			klog.Errorf("Describe dir %s fail: %v", podManifestPath, err)
+			return err
+		}
+	}
+
+	for _, manifest := range manifestList {
+		manifestFile := filepath.Join(podManifestPath, util.WithYamlSuffix(manifest))
+		if err := os.Remove(manifestFile); err != nil {
+			return err
+		}
+	}
+
+	klog.Info("Remove user edge static yaml is ok")
+	return nil
 }

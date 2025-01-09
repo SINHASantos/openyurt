@@ -17,54 +17,49 @@ limitations under the License.
 package components
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 
 	"github.com/openyurtio/openyurt/pkg/projectinfo"
-	"github.com/openyurtio/openyurt/pkg/util/templates"
+	kubeconfigutil "github.com/openyurtio/openyurt/pkg/util/kubeconfig"
 	"github.com/openyurtio/openyurt/pkg/yurtadm/constants"
 	enutil "github.com/openyurtio/openyurt/pkg/yurtadm/util/edgenode"
-	"github.com/openyurtio/openyurt/pkg/yurthub/certificate/token"
 	"github.com/openyurtio/openyurt/pkg/yurthub/storage/disk"
-	"github.com/openyurtio/openyurt/pkg/yurthub/util"
 )
 
 const (
 	hubHealthzCheckFrequency = 10 * time.Second
 	fileMode                 = 0666
+	DefaultRootDir           = "/var/lib"
+	DefaultCaPath            = "/etc/kubernetes/pki/ca.crt"
+	yurthubYurtStaticSetName = "yurthub"
+	defaultConfigmapPath     = "/data"
 )
 
 type yurtHubOperator struct {
 	apiServerAddr             string
-	yurthubImage              string
 	joinToken                 string
-	workingMode               util.WorkingMode
 	yurthubHealthCheckTimeout time.Duration
-	enableDummyIf             bool
-	enableNodePool            bool
 }
 
 // NewYurthubOperator new yurtHubOperator struct
-func NewYurthubOperator(apiServerAddr string, yurthubImage string, joinToken string,
-	workingMode util.WorkingMode, yurthubHealthCheckTimeout time.Duration, enableDummyIf, enableNodePool bool) *yurtHubOperator {
+func NewYurthubOperator(apiServerAddr string, joinToken string, yurthubHealthCheckTimeout time.Duration) *yurtHubOperator {
 	return &yurtHubOperator{
 		apiServerAddr:             apiServerAddr,
-		yurthubImage:              yurthubImage,
 		joinToken:                 joinToken,
-		workingMode:               workingMode,
 		yurthubHealthCheckTimeout: yurthubHealthCheckTimeout,
-		enableDummyIf:             enableDummyIf,
-		enableNodePool:            enableNodePool,
 	}
 }
 
@@ -73,30 +68,36 @@ func (op *yurtHubOperator) Install() error {
 
 	// 1. put yurt-hub yaml into /etc/kubernetes/manifests
 	klog.Infof("setting up yurthub on node")
-	// 1-1. replace variables in yaml file
-	klog.Infof("setting up yurthub apiServer addr")
-	yurthubTemplate, err := templates.SubsituteTemplate(constants.YurthubTemplate, map[string]string{
-		"yurthubServerAddr":    constants.DefaultYurtHubServerAddr,
-		"kubernetesServerAddr": op.apiServerAddr,
-		"image":                op.yurthubImage,
-		"joinToken":            op.joinToken,
-		"workingMode":          string(op.workingMode),
-		"enableDummyIf":        strconv.FormatBool(op.enableDummyIf),
-		"enableNodePool":       strconv.FormatBool(op.enableNodePool),
-	})
-	if err != nil {
+	// 1-1. get configmap data path
+	configMapDataPath := filepath.Join(defaultConfigmapPath, yurthubYurtStaticSetName)
+
+	// 1-2. create /var/lib/yurthub/bootstrap-hub.conf
+	if err := enutil.EnsureDir(constants.YurtHubWorkdir); err != nil {
 		return err
 	}
+	if err := setHubBootstrapConfig(op.apiServerAddr, op.joinToken); err != nil {
+		return err
+	}
+	klog.Infof("create the %s", constants.YurtHubBootstrapConfig)
 
-	// 1-2. create yurthub.yaml
+	// 1-3. create yurthub.yaml
 	podManifestPath := enutil.GetPodManifestPath()
 	if err := enutil.EnsureDir(podManifestPath); err != nil {
 		return err
 	}
-	if err := os.WriteFile(getYurthubYaml(podManifestPath), []byte(yurthubTemplate), fileMode); err != nil {
+	content, err := os.ReadFile(configMapDataPath)
+	if err != nil {
+		return fmt.Errorf("could not read source file %s: %w", configMapDataPath, err)
+	}
+	klog.Infof("yurt-hub.yaml apiServerAddr: %+v", op.apiServerAddr)
+	yssYurtHub := strings.ReplaceAll(string(content), "KUBERNETES_SERVER_ADDRESS", op.apiServerAddr)
+	if err = os.WriteFile(getYurthubYaml(podManifestPath), []byte(yssYurtHub), fileMode); err != nil {
 		return err
 	}
+
 	klog.Infof("create the %s/yurt-hub.yaml", podManifestPath)
+	klog.Infof("yurt-hub.yaml: %+v", configMapDataPath)
+	klog.Infof("yurt-hub.yaml content: %+v", yssYurtHub)
 
 	// 2. wait yurthub pod to be ready
 	return hubHealthcheck(op.yurthubHealthCheckTimeout)
@@ -151,7 +152,7 @@ func getYurthubYaml(podManifestPath string) string {
 }
 
 func getYurthubConf() string {
-	return filepath.Join(token.DefaultRootDir, projectinfo.GetHubName())
+	return filepath.Join(DefaultRootDir, projectinfo.GetHubName())
 }
 
 func getYurthubCacheDir() string {
@@ -164,7 +165,7 @@ func waitUntilYurthubExit(timeout time.Duration, period time.Duration) error {
 	serverHealthzURL, _ := url.Parse(fmt.Sprintf("http://%s", constants.ServerHealthzServer))
 	serverHealthzURL.Path = constants.ServerHealthzURLPath
 
-	return wait.PollImmediate(period, timeout, func() (bool, error) {
+	return wait.PollUntilContextTimeout(context.Background(), period, timeout, true, func(ctx context.Context) (bool, error) {
 		_, err := pingClusterHealthz(http.DefaultClient, serverHealthzURL.String())
 		if err != nil { // means yurthub has exited
 			klog.Infof("yurt-hub is not running, with ping result: %v", err)
@@ -184,7 +185,7 @@ func hubHealthcheck(timeout time.Duration) error {
 	serverHealthzURL.Path = constants.ServerHealthzURLPath
 
 	start := time.Now()
-	return wait.PollImmediate(hubHealthzCheckFrequency, timeout, func() (bool, error) {
+	return wait.PollUntilContextTimeout(context.Background(), hubHealthzCheckFrequency, timeout, true, func(ctx context.Context) (bool, error) {
 		_, err := pingClusterHealthz(http.DefaultClient, serverHealthzURL.String())
 		if err != nil {
 			klog.Infof("yurt-hub is not ready, ping cluster healthz with result: %v", err)
@@ -208,7 +209,7 @@ func pingClusterHealthz(client *http.Client, addr string) (bool, error) {
 	b, err := io.ReadAll(resp.Body)
 	defer resp.Body.Close()
 	if err != nil {
-		return false, fmt.Errorf("failed to read response of cluster healthz, %w", err)
+		return false, fmt.Errorf("could not read response of cluster healthz, %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -220,4 +221,27 @@ func pingClusterHealthz(client *http.Client, addr string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func setHubBootstrapConfig(serverAddr string, joinToken string) error {
+	caData, err := os.ReadFile(DefaultCaPath)
+	if err != nil {
+		return err
+	}
+	tlsBootstrapCfg := kubeconfigutil.CreateWithToken(
+		serverAddr,
+		"openyurt-e2e-test",
+		"token-bootstrap-client",
+		caData,
+		joinToken,
+	)
+	content, err := clientcmd.Write(*tlsBootstrapCfg)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(constants.YurtHubBootstrapConfig, content, fileMode); err != nil {
+		return errors.Wrap(err, "couldn't save bootstrap-hub.conf to disk")
+	}
+
+	return nil
 }

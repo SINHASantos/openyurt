@@ -3,7 +3,6 @@
 
 # options for analysis running
 run:
-  go: '1.16'
   # default concurrency is a available CPU number
   concurrency: 4
 
@@ -18,9 +17,8 @@ run:
 
 # output configuration options
 output:
-  # colored-line-number|line-number|json|tab|checkstyle|code-climate|junit-xml|github-actions
-  # default is "colored-line-number"
-  format: colored-line-number
+  formats:
+    - format: colored-line-number
 
   # print lines of code with issue, default is true
   print-issued-lines: true
@@ -34,15 +32,19 @@ output:
 # all available settings of specific linters
 linters-settings:
   gci:
-    local-prefixes: github.com/openyurtio
+    sections:
+      - standard
+      - prefix(github.com/openyurtio)
+      - default
 
 linters:
   disable-all: true
   enable:
-    - deadcode 
+    - gci
     - gofmt
     - goimports
-    - gci
     - ineffassign
     - misspell
-    - vet
+    - unused
+    - govet
+    - staticcheck

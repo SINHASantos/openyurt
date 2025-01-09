@@ -16,7 +16,12 @@ limitations under the License.
 
 package util
 
-import "reflect"
+import (
+	"reflect"
+
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/client-go/tools/cache"
+)
 
 func IsNil(i interface{}) bool {
 	if i == nil {
@@ -29,3 +34,31 @@ func IsNil(i interface{}) bool {
 	}
 	return false
 }
+
+// Dropping `.metadata.managedFields` to improve memory usage
+func TransformStripManagedFields() cache.TransformFunc {
+	return func(in any) (any, error) {
+		// Nilcheck managed fields to avoid hitting https://github.com/kubernetes/kubernetes/issues/124337
+		if obj, err := meta.Accessor(in); err == nil && obj.GetManagedFields() != nil {
+			obj.SetManagedFields(nil)
+		}
+
+		return in, nil
+	}
+}
+
+const (
+	// HttpHeaderContentType HTTP request header keyword: Content-Type which is used in HTTP request and response
+	// headers to specify the media type of the entity body
+	HttpHeaderContentType = "Content-Type"
+	// HttpHeaderContentLength HTTP request header keyword: Content-Length which is used to indicate the size of the
+	// message body, ensuring that the message can be transmitted and parsed correctly
+	HttpHeaderContentLength = "Content-Length"
+	// HttpHeaderTransferEncoding HTTP request header keyword: Transfer-Encoding which is used to indicate the HTTP
+	// transmission encoding type used by the server
+	HttpHeaderTransferEncoding = "Transfer-Encoding"
+
+	// HttpContentTypeJson HTTP request Content-Type type: application/json which is used to indicate that the data
+	// type transmitted in the HTTP request and response body is JSON
+	HttpContentTypeJson = "application/json"
+)

@@ -4,6 +4,8 @@ bin
 .DS_Store
 gopath
 dockerbuild
+hack/cni
+config/demo
 
 vendor
 .vscode

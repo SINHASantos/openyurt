@@ -21,10 +21,12 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"gopkg.in/square/go-jose.v2/jwt"
+	"github.com/go-jose/go-jose/v3/jwt"
+	"github.com/munnerz/goautoneg"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metainternalversion "k8s.io/apimachinery/pkg/apis/meta/internalversion"
 	metainternalversionscheme "k8s.io/apimachinery/pkg/apis/meta/internalversion/scheme"
@@ -36,16 +38,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer/streaming"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/apiserver/pkg/authentication/serviceaccount"
-	"k8s.io/apiserver/pkg/endpoints/handlers/negotiation"
-	"k8s.io/apiserver/pkg/endpoints/handlers/responsewriters"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/klog/v2"
 
 	"github.com/openyurtio/openyurt/pkg/yurthub/kubernetes/serializer"
 	"github.com/openyurtio/openyurt/pkg/yurthub/metrics"
-	"github.com/openyurtio/openyurt/pkg/yurthub/poolcoordinator/resources"
 	"github.com/openyurtio/openyurt/pkg/yurthub/tenant"
 	"github.com/openyurtio/openyurt/pkg/yurthub/util"
+	"github.com/openyurtio/openyurt/pkg/yurthub/yurtcoordinator/resources"
 )
 
 const (
@@ -60,6 +60,56 @@ var needModifyTimeoutVerb = map[string]bool{
 	"watch": true,
 }
 
+// WithPartialObjectMetadataRequest is used for extracting info for partial object metadata request,
+// then these info is used by cache manager.
+func WithPartialObjectMetadataRequest(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		ctx := req.Context()
+		if info, ok := apirequest.RequestInfoFrom(ctx); ok {
+			if info.IsResourceRequest {
+				var gvk schema.GroupVersionKind
+				acceptHeader := req.Header.Get("Accept")
+				clauses := goautoneg.ParseAccept(acceptHeader)
+				if len(clauses) >= 1 {
+					gvk.Group = clauses[0].Params["g"]
+					gvk.Version = clauses[0].Params["v"]
+					gvk.Kind = clauses[0].Params["as"]
+				}
+
+				if gvk.Kind == "PartialObjectMetadataList" || gvk.Kind == "PartialObjectMetadata" {
+					if err := ensureValidGroupAndVersion(&gvk); err != nil {
+						klog.Errorf("WithPartialObjectMetadataRequest error: %v", err)
+					} else {
+						ctx = util.WithConvertGVK(ctx, &gvk)
+						req = req.WithContext(ctx)
+					}
+				}
+			}
+		}
+
+		handler.ServeHTTP(w, req)
+	})
+}
+
+func ensureValidGroupAndVersion(gvk *schema.GroupVersionKind) error {
+	if strings.Contains(gvk.Group, "meta.k8s.io") {
+		gvk.Group = "meta.k8s.io"
+	} else {
+		return fmt.Errorf("unknown group(%s) for partialobjectmetadata request", gvk.Group)
+	}
+
+	switch {
+	case strings.Contains(gvk.Version, "v1"):
+		gvk.Version = "v1"
+	case strings.Contains(gvk.Version, "v1beta1"):
+		gvk.Version = "v1beta1"
+	default:
+		return fmt.Errorf("unknown version(%s) for partialobjectmetadata request", gvk.Version)
+	}
+
+	return nil
+}
+
 // WithRequestContentType add req-content-type in request context.
 // if no Accept header is set, the request will be reject with a message.
 func WithRequestContentType(handler http.Handler) http.Handler {
@@ -72,6 +122,14 @@ func WithRequestContentType(handler http.Handler) http.Handler {
 				parts := strings.Split(header, ",")
 				if len(parts) >= 1 {
 					contentType = parts[0]
+				}
+
+				subParts := strings.Split(contentType, ";")
+				for i := range subParts {
+					if strings.Contains(subParts[i], "as=") {
+						contentType = subParts[0]
+						break
+					}
 				}
 
 				if len(contentType) != 0 {
@@ -156,21 +214,29 @@ func WithListRequestSelector(handler http.Handler) http.Handler {
 // WithRequestClientComponent add component field in request context.
 // component is extracted from User-Agent Header, and only the content
 // before the "/" when User-Agent include "/".
-func WithRequestClientComponent(handler http.Handler) http.Handler {
+func WithRequestClientComponent(handler http.Handler, mode util.WorkingMode) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := req.Context()
 		if info, ok := apirequest.RequestInfoFrom(ctx); ok {
 
 			if info.IsResourceRequest {
-				var comp string
 				userAgent := strings.ToLower(req.Header.Get("User-Agent"))
-				parts := strings.Split(userAgent, "/")
-				if len(parts) > 0 {
-					comp = strings.ToLower(parts[0])
+				// on edge mode, component name is used as element of cache path, so only the part
+				// before the first forward slash can be recognized as component name.
+				if mode == util.WorkingModeEdge {
+					parts := strings.Split(userAgent, "/")
+					if len(parts) > 0 {
+						userAgent = strings.ToLower(parts[0])
+					}
 				}
 
-				if comp != "" {
-					ctx = util.WithClientComponent(ctx, comp)
+				if userAgent != "" {
+					convertGVK, ok := util.ConvertGVKFrom(ctx)
+					if ok && convertGVK != nil {
+						userAgent = filepath.Join(userAgent, strings.Join([]string{"partialobjectmetadatas", convertGVK.Version, convertGVK.Group}, "."))
+					}
+
+					ctx = util.WithClientComponent(ctx, userAgent)
 					req = req.WithContext(ctx)
 				}
 			}
@@ -198,17 +264,11 @@ func WithIfPoolScopedResource(handler http.Handler) http.Handler {
 type wrapperResponseWriter struct {
 	http.ResponseWriter
 	http.Flusher
-	http.CloseNotifier
 	http.Hijacker
 	statusCode int
 }
 
 func newWrapperResponseWriter(w http.ResponseWriter) *wrapperResponseWriter {
-	cn, ok := w.(http.CloseNotifier)
-	if !ok {
-		klog.Error("can not get http.CloseNotifier")
-	}
-
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		klog.Error("can not get http.Flusher")
@@ -222,7 +282,6 @@ func newWrapperResponseWriter(w http.ResponseWriter) *wrapperResponseWriter {
 	return &wrapperResponseWriter{
 		ResponseWriter: w,
 		Flusher:        flusher,
-		CloseNotifier:  cn,
 		Hijacker:       hijacker,
 	}
 }
@@ -252,8 +311,12 @@ func WithRequestTrace(handler http.Handler) http.Handler {
 		start := time.Now()
 		defer func() {
 			duration := time.Since(start)
-			klog.Infof("%s with status code %d, spent %v", util.ReqString(req), wrapperRW.statusCode, duration)
-			// 'watch' & 'proxy' requets don't need to be monitored in metrics
+			if info.Resource == "leases" {
+				klog.V(5).Infof("%s with status code %d, spent %v", util.ReqString(req), wrapperRW.statusCode, duration)
+			} else {
+				klog.V(2).Infof("%s with status code %d, spent %v", util.ReqString(req), wrapperRW.statusCode, duration)
+			}
+			// 'watch' & 'proxy' requests don't need to be monitored in metrics
 			if info.Verb != "proxy" && info.Verb != "watch" {
 				metrics.Metrics.SetProxyLatencyCollector(client, info.Verb, info.Resource, info.Subresource, metrics.Apiserver_latency, int64(duration))
 			}
@@ -273,7 +336,7 @@ func WithRequestTraceFull(handler http.Handler) http.Handler {
 		start := time.Now()
 		defer func() {
 			duration := time.Since(start)
-			// 'watch' & 'proxy' requets don't need to be monitored in metrics
+			// 'watch' & 'proxy' requests don't need to be monitored in metrics
 			if info.Verb != "proxy" && info.Verb != "watch" {
 				metrics.Metrics.SetProxyLatencyCollector(client, info.Verb, info.Resource, info.Subresource, metrics.Full_lantency, int64(duration))
 			}
@@ -291,9 +354,17 @@ func WithMaxInFlightLimit(handler http.Handler, limit int) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		info, ok := apirequest.RequestInfoFrom(req.Context())
+		if !ok {
+			info = &apirequest.RequestInfo{}
+		}
 		select {
 		case reqChan <- true:
-			klog.V(2).Infof("start proxying: %s %s, in flight requests: %d", strings.ToLower(req.Method), req.URL.String(), len(reqChan))
+			if info.Resource == "leases" {
+				klog.V(5).Infof("%s, in flight requests: %d", util.ReqString(req), len(reqChan))
+			} else {
+				klog.V(2).Infof("%s, in flight requests: %d", util.ReqString(req), len(reqChan))
+			}
 			defer func() {
 				<-reqChan
 				klog.V(5).Infof("%s request completed, left %d requests in flight", util.ReqString(req), len(reqChan))
@@ -304,7 +375,7 @@ func WithMaxInFlightLimit(handler http.Handler, limit int) http.Handler {
 			klog.Errorf("Too many requests, please try again later, %s", util.ReqString(req))
 			metrics.Metrics.IncRejectedRequestCounter()
 			w.Header().Set("Retry-After", "1")
-			Err(errors.NewTooManyRequestsError("Too many requests, please try again later."), w, req)
+			util.Err(errors.NewTooManyRequestsError("Too many requests, please try again later."), w, req)
 		}
 	})
 }
@@ -316,6 +387,7 @@ func WithMaxInFlightLimit(handler http.Handler, limit int) http.Handler {
 // 2. WithRequestTimeout reduce timeout context for get/list request.
 //    timeout is Timeout reduce a margin(2 seconds). When request remote server fail,
 //    can get data from cache before client timeout.
+
 func WithRequestTimeout(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if info, ok := apirequest.RequestInfoFrom(req.Context()); ok {
@@ -324,8 +396,8 @@ func WithRequestTimeout(handler http.Handler) http.Handler {
 				if info.Verb == "list" || info.Verb == "watch" {
 					opts := metainternalversion.ListOptions{}
 					if err := metainternalversionscheme.ParameterCodec.DecodeParameters(req.URL.Query(), metav1.SchemeGroupVersion, &opts); err != nil {
-						klog.Errorf("failed to decode parameter for list/watch request: %s", util.ReqString(req))
-						Err(errors.NewBadRequest(err.Error()), w, req)
+						klog.Errorf("could not decode parameter for list/watch request: %s", util.ReqString(req))
+						util.Err(errors.NewBadRequest(err.Error()), w, req)
 						return
 					}
 					if opts.TimeoutSeconds != nil {
@@ -337,7 +409,7 @@ func WithRequestTimeout(handler http.Handler) http.Handler {
 					}
 				} else if info.Verb == "get" {
 					query := req.URL.Query()
-					if str, _ := query["timeout"]; len(str) > 0 {
+					if str := query["timeout"]; len(str) > 0 {
 						if t, err := time.ParseDuration(str[0]); err == nil {
 							if t > time.Duration(getAndListTimeoutReduce)*time.Second {
 								timeout = t - time.Duration(getAndListTimeoutReduce)*time.Second
@@ -360,7 +432,7 @@ func WithSaTokenSubstitute(handler http.Handler, tenantMgr tenant.Interface) htt
 
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 
-		if oldToken := util.ParseBearerToken(req.Header.Get("Authorization")); oldToken != "" { //bearer token is not empty&valid
+		if oldToken := util.ParseBearerToken(req.Header.Get("Authorization")); oldToken != "" { // bearer token is not empty&valid
 
 			if jsonWebToken, err := jwt.ParseSigned(oldToken); err != nil {
 
@@ -378,7 +450,7 @@ func WithSaTokenSubstitute(handler http.Handler, tenantMgr tenant.Interface) htt
 						}
 
 					} else {
-						klog.Errorf("failed to parse tenant ns from token, token %s, sub: %s", oldToken, oldClaim.Subject)
+						klog.Errorf("could not parse tenant ns from token, token %s, sub: %s", oldToken, oldClaim.Subject)
 					}
 				}
 			}
@@ -421,39 +493,19 @@ func IsKubeletLeaseReq(req *http.Request) bool {
 	return true
 }
 
-// WriteObject write object to response writer
-func WriteObject(statusCode int, obj runtime.Object, w http.ResponseWriter, req *http.Request) error {
+// IsKubeletGetNodeReq judge whether the request is a get node request from kubelet
+func IsKubeletGetNodeReq(req *http.Request) bool {
 	ctx := req.Context()
-	if info, ok := apirequest.RequestInfoFrom(ctx); ok {
-		gv := schema.GroupVersion{
-			Group:   info.APIGroup,
-			Version: info.APIVersion,
-		}
-		negotiatedSerializer := serializer.YurtHubSerializer.GetNegotiatedSerializer(gv.WithResource(info.Resource))
-		responsewriters.WriteObjectNegotiated(negotiatedSerializer, negotiation.DefaultEndpointRestrictions, gv, w, req, statusCode, obj)
-		return nil
+	if comp, ok := util.ClientComponentFrom(ctx); !ok || comp != "kubelet" {
+		return false
 	}
-
-	return fmt.Errorf("request info is not found when write object, %s", util.ReqString(req))
+	if info, ok := apirequest.RequestInfoFrom(ctx); !ok || info.Resource != "nodes" || info.Verb != "get" {
+		return false
+	}
+	return true
 }
 
-// Err write err to response writer
-func Err(err error, w http.ResponseWriter, req *http.Request) {
-	ctx := req.Context()
-	if info, ok := apirequest.RequestInfoFrom(ctx); ok {
-		gv := schema.GroupVersion{
-			Group:   info.APIGroup,
-			Version: info.APIVersion,
-		}
-		negotiatedSerializer := serializer.YurtHubSerializer.GetNegotiatedSerializer(gv.WithResource(info.Resource))
-		responsewriters.ErrorNegotiated(err, negotiatedSerializer, gv, w, req)
-		return
-	}
-
-	klog.Errorf("request info is not found when err write, %s", util.ReqString(req))
-}
-
-func IsPoolScopedResouceListWatchRequest(req *http.Request) bool {
+func IsPoolScopedResourceListWatchRequest(req *http.Request) bool {
 	ctx := req.Context()
 	info, ok := apirequest.RequestInfoFrom(ctx)
 	if !ok {
@@ -509,10 +561,6 @@ func ReListWatchReq(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	streamingEncoder := streaming.NewEncoder(framer.NewFrameWriter(rw), streamingSerializer)
-	if err != nil {
-		klog.Errorf("ReListWatchReq %s failed with error = %s", util.ReqString(req), err.Error())
-		return
-	}
 
 	outEvent := &metav1.WatchEvent{
 		Type: string(watch.Error),
@@ -525,4 +573,38 @@ func ReListWatchReq(rw http.ResponseWriter, req *http.Request) {
 
 	klog.Infof("this request write error event back finished.")
 	rw.(http.Flusher).Flush()
+}
+
+func IsMultiplexerRequest(req *http.Request, multiplexerResources []schema.GroupVersionResource, nodeName string) bool {
+	ctx := req.Context()
+
+	if req.UserAgent() == util.MultiplexerProxyClientUserAgentPrefix+nodeName {
+		return false
+	}
+
+	info, ok := apirequest.RequestInfoFrom(ctx)
+	if !ok {
+		return false
+	}
+
+	if info.Verb != "list" && info.Verb != "watch" {
+		return false
+	}
+
+	return isMultiplexerResource(info, multiplexerResources)
+}
+
+func isMultiplexerResource(info *apirequest.RequestInfo, multiplexerResources []schema.GroupVersionResource) bool {
+	gvr := schema.GroupVersionResource{
+		Group:    info.APIGroup,
+		Version:  info.APIVersion,
+		Resource: info.Resource,
+	}
+
+	for _, resource := range multiplexerResources {
+		if gvr.String() == resource.String() {
+			return true
+		}
+	}
+	return false
 }

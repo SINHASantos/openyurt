@@ -42,6 +42,7 @@ import (
 	proxyutil "github.com/openyurtio/openyurt/pkg/yurthub/proxy/util"
 	"github.com/openyurtio/openyurt/pkg/yurthub/storage"
 	"github.com/openyurtio/openyurt/pkg/yurthub/storage/disk"
+	"github.com/openyurtio/openyurt/pkg/yurthub/util"
 )
 
 var (
@@ -64,7 +65,7 @@ func TestServeHTTPForWatch(t *testing.T) {
 	}
 	sWrapper := cachemanager.NewStorageWrapper(dStorage)
 	serializerM := serializer.NewSerializerManager()
-	cacheM := cachemanager.NewCacheManager(sWrapper, serializerM, nil, fakeSharedInformerFactory)
+	cacheM := cachemanager.NewCacheManager("node1", sWrapper, serializerM, nil, fakeSharedInformerFactory)
 
 	fn := func() bool {
 		return false
@@ -121,7 +122,7 @@ func TestServeHTTPForWatch(t *testing.T) {
 				end = time.Now()
 			})
 
-			handler = proxyutil.WithRequestClientComponent(handler)
+			handler = proxyutil.WithRequestClientComponent(handler, util.WorkingModeEdge)
 			handler = proxyutil.WithRequestContentType(handler)
 			handler = filters.WithRequestInfo(handler, resolver)
 
@@ -156,7 +157,7 @@ func TestServeHTTPForWatchWithHealthyChange(t *testing.T) {
 	}
 	sWrapper := cachemanager.NewStorageWrapper(dStorage)
 	serializerM := serializer.NewSerializerManager()
-	cacheM := cachemanager.NewCacheManager(sWrapper, serializerM, nil, fakeSharedInformerFactory)
+	cacheM := cachemanager.NewCacheManager("node1", sWrapper, serializerM, nil, fakeSharedInformerFactory)
 
 	cnt := 0
 	fn := func() bool {
@@ -207,7 +208,7 @@ func TestServeHTTPForWatchWithHealthyChange(t *testing.T) {
 				end = time.Now()
 			})
 
-			handler = proxyutil.WithRequestClientComponent(handler)
+			handler = proxyutil.WithRequestClientComponent(handler, util.WorkingModeEdge)
 			handler = proxyutil.WithRequestContentType(handler)
 			handler = filters.WithRequestInfo(handler, resolver)
 
@@ -241,7 +242,7 @@ func TestServeHTTPForWatchWithMinRequestTimeout(t *testing.T) {
 	}
 	sWrapper := cachemanager.NewStorageWrapper(dStorage)
 	serializerM := serializer.NewSerializerManager()
-	cacheM := cachemanager.NewCacheManager(sWrapper, serializerM, nil, fakeSharedInformerFactory)
+	cacheM := cachemanager.NewCacheManager("node1", sWrapper, serializerM, nil, fakeSharedInformerFactory)
 
 	fn := func() bool {
 		return false
@@ -299,7 +300,7 @@ func TestServeHTTPForWatchWithMinRequestTimeout(t *testing.T) {
 				end = time.Now()
 			})
 
-			handler = proxyutil.WithRequestClientComponent(handler)
+			handler = proxyutil.WithRequestClientComponent(handler, util.WorkingModeEdge)
 			handler = proxyutil.WithRequestContentType(handler)
 			handler = filters.WithRequestInfo(handler, resolver)
 
@@ -333,7 +334,7 @@ func TestServeHTTPForPost(t *testing.T) {
 	}
 	sWrapper := cachemanager.NewStorageWrapper(dStorage)
 	serializerM := serializer.NewSerializerManager()
-	cacheM := cachemanager.NewCacheManager(sWrapper, serializerM, nil, fakeSharedInformerFactory)
+	cacheM := cachemanager.NewCacheManager("node1", sWrapper, serializerM, nil, fakeSharedInformerFactory)
 
 	fn := func() bool {
 		return false
@@ -382,7 +383,7 @@ func TestServeHTTPForPost(t *testing.T) {
 				lp.ServeHTTP(w, req)
 			})
 
-			handler = proxyutil.WithRequestClientComponent(handler)
+			handler = proxyutil.WithRequestClientComponent(handler, util.WorkingModeEdge)
 			handler = proxyutil.WithRequestContentType(handler)
 			handler = filters.WithRequestInfo(handler, resolver)
 
@@ -413,7 +414,7 @@ func TestServeHTTPForDelete(t *testing.T) {
 	}
 	sWrapper := cachemanager.NewStorageWrapper(dStorage)
 	serializerM := serializer.NewSerializerManager()
-	cacheM := cachemanager.NewCacheManager(sWrapper, serializerM, nil, fakeSharedInformerFactory)
+	cacheM := cachemanager.NewCacheManager("node1", sWrapper, serializerM, nil, fakeSharedInformerFactory)
 
 	fn := func() bool {
 		return false
@@ -455,7 +456,7 @@ func TestServeHTTPForDelete(t *testing.T) {
 				lp.ServeHTTP(w, req)
 			})
 
-			handler = proxyutil.WithRequestClientComponent(handler)
+			handler = proxyutil.WithRequestClientComponent(handler, util.WorkingModeEdge)
 			handler = proxyutil.WithRequestContentType(handler)
 			handler = filters.WithRequestInfo(handler, resolver)
 
@@ -480,7 +481,7 @@ func TestServeHTTPForGetReqCache(t *testing.T) {
 	}
 	sWrapper := cachemanager.NewStorageWrapper(dStorage)
 	serializerM := serializer.NewSerializerManager()
-	cacheM := cachemanager.NewCacheManager(sWrapper, serializerM, nil, fakeSharedInformerFactory)
+	cacheM := cachemanager.NewCacheManager("node1", sWrapper, serializerM, nil, fakeSharedInformerFactory)
 
 	fn := func() bool {
 		return false
@@ -574,7 +575,7 @@ func TestServeHTTPForGetReqCache(t *testing.T) {
 				lp.ServeHTTP(w, req)
 			})
 
-			handler = proxyutil.WithRequestClientComponent(handler)
+			handler = proxyutil.WithRequestClientComponent(handler, util.WorkingModeEdge)
 			handler = proxyutil.WithRequestContentType(handler)
 			handler = filters.WithRequestInfo(handler, resolver)
 
@@ -633,7 +634,7 @@ func TestServeHTTPForListReqCache(t *testing.T) {
 	sWrapper := cachemanager.NewStorageWrapper(dStorage)
 	serializerM := serializer.NewSerializerManager()
 	restRESTMapperMgr, _ := hubmeta.NewRESTMapperManager(rootDir)
-	cacheM := cachemanager.NewCacheManager(sWrapper, serializerM, restRESTMapperMgr, fakeSharedInformerFactory)
+	cacheM := cachemanager.NewCacheManager("node1", sWrapper, serializerM, restRESTMapperMgr, fakeSharedInformerFactory)
 
 	fn := func() bool {
 		return false
@@ -773,7 +774,7 @@ func TestServeHTTPForListReqCache(t *testing.T) {
 				lp.ServeHTTP(w, req)
 			})
 
-			handler = proxyutil.WithRequestClientComponent(handler)
+			handler = proxyutil.WithRequestClientComponent(handler, util.WorkingModeEdge)
 			handler = proxyutil.WithRequestContentType(handler)
 			handler = filters.WithRequestInfo(handler, resolver)
 
@@ -812,7 +813,7 @@ func TestServeHTTPForListReqCache(t *testing.T) {
 			}
 
 			if len(list.Items) != len(tt.expectD.data) {
-				t.Errorf("Got %d pods, but exepect %d pods", len(list.Items), len(tt.expectD.data))
+				t.Errorf("Got %d pods, but expect %d pods", len(list.Items), len(tt.expectD.data))
 			}
 
 			for i := range list.Items {

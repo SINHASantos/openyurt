@@ -1,5 +1,5 @@
 #!/bin/bash -l
-# Copyright 2020 The OpenYurt Authors.
+# Copyright 2024 The OpenYurt Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,32 +26,63 @@ echo "git clone"
 cd ..
 git config --global user.email "openyurt-bot@openyurt.io"
 git config --global user.name "openyurt-bot"
-git clone --single-branch --depth 1 git@github.com:openyurtio/openyurt-helm.git openyurt-helm
+git clone --single-branch --depth 1 git@github.com:openyurtio/charts.git charts
 
-echo "clear openyurt-helm charts/openyurt"
+echo "clear charts/yurt-coordinator in openyurtio/charts"
 
-if [ -d "openyurt-helm/charts/openyurt" ]
+if [ -d "charts/charts/yurt-coordinator" ]
 then
-    echo "charts openyurt exists, remove it"
-    rm -r openyurt-helm/charts/openyurt/*
+    echo "charts yurt-coordinator exists, remove it"
+    rm -r charts/charts/yurt-coordinator/*
 else
-    mkdir -p openyurt-helm/charts/openyurt
+    mkdir -p charts/charts/yurt-coordinator
 fi
 
-echo "copy folder openyurt/charts to openyurt-helm/charts"
+echo "clear charts/yurt-manager in openyurtio/charts"
 
-cp -R openyurt/charts/openyurt/* openyurt-helm/charts/openyurt/
+if [ -d "charts/charts/yurt-manager" ]
+then
+    echo "charts yurt-manager exists, remove it"
+    rm -r charts/charts/yurt-manager/*
+else
+    mkdir -p charts/charts/yurt-manager
+fi
 
-echo "push to openyurt-helm"
-echo "version: $VERSION, commit: $COMMIT_ID, tag: $TAG"
+echo "clear charts/yurthub in openyurtio/charts"
 
-cd openyurt-helm
+if [ -d "charts/charts/yurthub" ]
+then
+    echo "charts yurthub exists, remove it"
+    rm -r charts/charts/yurthub/*
+else
+    mkdir -p charts/charts/yurthub
+fi
+
+echo "clear charts/yurt-iot-dock in openyurtio/charts"
+
+if [ -d "charts/charts/yurt-iot-dock" ]
+then
+    echo "charts yurt-iot-dock exists, remove it"
+    rm -r charts/charts/yurt-iot-dock/*
+else
+    mkdir -p charts/charts/yurt-iot-dock
+fi
+
+echo "copy folder openyurt/charts to openyurtio/charts/charts"
+
+cp -R openyurt/charts/yurt-coordinator/* charts/charts/yurt-coordinator/
+cp -R openyurt/charts/yurt-manager/* charts/charts/yurt-manager/
+cp -R openyurt/charts/yurthub/* charts/charts/yurthub/
+cp -R openyurt/charts/yurt-iot-dock/* charts/charts/yurt-iot-dock/
+
+echo "push to openyurtio/charts from commit: $COMMIT_ID"
+
+cd charts
 
 if [ -z "$(git status --porcelain)" ]; then
   echo "nothing need to push, finished!"
 else
   git add .
-  git commit -m "align with openyurt charts $VERSION from commit $COMMIT_ID"
-  git tag "$VERSION"
+  git commit -m "align with openyurt helm charts from commit $COMMIT_ID"
   git push origin main
 fi

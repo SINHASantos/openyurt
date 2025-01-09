@@ -13,12 +13,13 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package jwt
 
 import (
 	"testing"
 
-	"gopkg.in/square/go-jose.v2/jwt"
+	"github.com/go-jose/go-jose/v3/jwt"
 	"k8s.io/apiserver/pkg/authentication/serviceaccount"
 )
 
@@ -31,7 +32,7 @@ func TestJwt(t *testing.T) {
 		if err := token.UnsafeClaimsWithoutVerification(&bearerClaims); err == nil {
 
 			if tenantNs, username, err := serviceaccount.SplitUsername(bearerClaims.Subject); err == nil {
-				t.Logf("succeed to parse toke, ns: %s, username: %s", tenantNs, username)
+				t.Logf("succeed to parse token, ns: %s, username: %s", tenantNs, username)
 			} else {
 				t.Errorf("failed to parse jwt token, %v", err)
 			}

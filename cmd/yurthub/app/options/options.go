@@ -31,6 +31,7 @@ import (
 	utilnet "k8s.io/utils/net"
 
 	"github.com/openyurtio/openyurt/pkg/projectinfo"
+	"github.com/openyurtio/openyurt/pkg/yurthub/certificate"
 	"github.com/openyurtio/openyurt/pkg/yurthub/storage/disk"
 	"github.com/openyurtio/openyurt/pkg/yurthub/util"
 )
@@ -50,6 +51,7 @@ type YurtHubOptions struct {
 	YurtHubPort               int
 	YurtHubProxyPort          int
 	YurtHubProxySecurePort    int
+	YurtHubNamespace          string
 	GCFrequency               int
 	YurtHubCertOrganizations  []string
 	NodeName                  string
@@ -61,6 +63,8 @@ type YurtHubOptions struct {
 	HeartbeatIntervalSeconds  int
 	MaxRequestInFlight        int
 	JoinToken                 string
+	BootstrapMode             string
+	BootstrapFile             string
 	RootDir                   string
 	Version                   bool
 	EnableProfiling           bool
@@ -68,8 +72,8 @@ type YurtHubOptions struct {
 	EnableIptables            bool
 	HubAgentDummyIfIP         string
 	HubAgentDummyIfName       string
+	HostControlPlaneAddr      string
 	DiskCachePath             string
-	AccessServerThroughHub    bool
 	EnableResourceFilter      bool
 	DisabledResourceFilters   []string
 	WorkingMode               string
@@ -84,6 +88,7 @@ type YurtHubOptions struct {
 	CoordinatorStoragePrefix  string
 	CoordinatorStorageAddr    string
 	LeaderElection            componentbaseconfig.LeaderElectionConfiguration
+	EnablePoolServiceTopology bool
 }
 
 // NewYurtHubOptions creates a new YurtHubOptions with a default config.
@@ -94,6 +99,7 @@ func NewYurtHubOptions() *YurtHubOptions {
 		YurtHubProxyPort:          util.YurtHubProxyPort,
 		YurtHubPort:               util.YurtHubPort,
 		YurtHubProxySecurePort:    util.YurtHubProxySecurePort,
+		YurtHubNamespace:          util.YurtHubNamespace,
 		GCFrequency:               120,
 		YurtHubCertOrganizations:  make([]string, 0),
 		LBMode:                    "rr",
@@ -102,13 +108,13 @@ func NewYurtHubOptions() *YurtHubOptions {
 		HeartbeatTimeoutSeconds:   2,
 		HeartbeatIntervalSeconds:  10,
 		MaxRequestInFlight:        250,
+		BootstrapMode:             certificate.TokenBootstrapMode,
 		RootDir:                   filepath.Join("/var/lib/", projectinfo.GetHubName()),
 		EnableProfiling:           true,
 		EnableDummyIf:             true,
-		EnableIptables:            true,
+		EnableIptables:            false,
 		HubAgentDummyIfName:       fmt.Sprintf("%s-dummy0", projectinfo.GetHubName()),
 		DiskCachePath:             disk.CacheBaseDir,
-		AccessServerThroughHub:    true,
 		EnableResourceFilter:      true,
 		DisabledResourceFilters:   make([]string, 0),
 		WorkingMode:               string(util.WorkingModeEdge),
@@ -117,8 +123,8 @@ func NewYurtHubOptions() *YurtHubOptions {
 		MinRequestTimeout:         time.Second * 1800,
 		CACertHashes:              make([]string, 0),
 		UnsafeSkipCAVerification:  true,
-		CoordinatorServerAddr:     fmt.Sprintf("https://%s:%s", util.DefaultPoolCoordinatorAPIServerSvcName, util.DefaultPoolCoordinatorAPIServerSvcPort),
-		CoordinatorStorageAddr:    fmt.Sprintf("https://%s:%s", util.DefaultPoolCoordinatorEtcdSvcName, util.DefaultPoolCoordinatorEtcdSvcPort),
+		CoordinatorServerAddr:     fmt.Sprintf("https://%s:%s", util.DefaultYurtCoordinatorAPIServerSvcName, util.DefaultYurtCoordinatorAPIServerSvcPort),
+		CoordinatorStorageAddr:    fmt.Sprintf("https://%s:%s", util.DefaultYurtCoordinatorEtcdSvcName, util.DefaultYurtCoordinatorEtcdSvcPort),
 		CoordinatorStoragePrefix:  "/registry",
 		LeaderElection: componentbaseconfig.LeaderElectionConfiguration{
 			LeaderElect:       true,
@@ -129,6 +135,7 @@ func NewYurtHubOptions() *YurtHubOptions {
 			ResourceName:      projectinfo.GetHubName(),
 			ResourceNamespace: "kube-system",
 		},
+		EnablePoolServiceTopology: false,
 	}
 	return o
 }
@@ -143,24 +150,36 @@ func (options *YurtHubOptions) Validate() error {
 		return fmt.Errorf("server-address is empty")
 	}
 
-	if len(options.JoinToken) == 0 {
-		return fmt.Errorf("bootstrap token is empty")
-	}
+	if options.WorkingMode != string(util.WorkingModeLocal) {
+		if options.BootstrapMode != certificate.KubeletCertificateBootstrapMode {
+			if len(options.JoinToken) == 0 && len(options.BootstrapFile) == 0 {
+				return fmt.Errorf("bootstrap token and bootstrap file are empty, one of them must be set")
+			}
+		}
 
-	if !util.IsSupportedLBMode(options.LBMode) {
-		return fmt.Errorf("lb mode(%s) is not supported", options.LBMode)
-	}
+		if !util.IsSupportedLBMode(options.LBMode) {
+			return fmt.Errorf("lb mode(%s) is not supported", options.LBMode)
+		}
 
-	if !util.IsSupportedWorkingMode(util.WorkingMode(options.WorkingMode)) {
-		return fmt.Errorf("working mode %s is not supported", options.WorkingMode)
-	}
+		if !util.IsSupportedWorkingMode(util.WorkingMode(options.WorkingMode)) {
+			return fmt.Errorf("working mode %s is not supported", options.WorkingMode)
+		}
 
-	if err := options.verifyDummyIP(); err != nil {
-		return fmt.Errorf("dummy ip %s is not invalid, %w", options.HubAgentDummyIfIP, err)
-	}
+		if err := options.verifyDummyIP(); err != nil {
+			return fmt.Errorf("dummy ip %s is not invalid, %w", options.HubAgentDummyIfIP, err)
+		}
 
-	if len(options.CACertHashes) == 0 && !options.UnsafeSkipCAVerification {
-		return fmt.Errorf("set --discovery-token-unsafe-skip-ca-verification flag as true or pass CACertHashes to continue")
+		if len(options.HubAgentDummyIfName) > 15 {
+			return fmt.Errorf("dummy name %s length should not be more than 15", options.HubAgentDummyIfName)
+		}
+
+		if len(options.CACertHashes) == 0 && !options.UnsafeSkipCAVerification {
+			return fmt.Errorf("set --discovery-token-unsafe-skip-ca-verification flag as true or pass CACertHashes to continue")
+		}
+	} else {
+		if len(options.HostControlPlaneAddr) == 0 {
+			return fmt.Errorf("host-control-plane-address is empty")
+		}
 	}
 
 	return nil
@@ -173,7 +192,8 @@ func (o *YurtHubOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.YurtHubProxyHost, "bind-proxy-address", o.YurtHubProxyHost, "the IP address of YurtHub Proxy Server")
 	fs.IntVar(&o.YurtHubProxyPort, "proxy-port", o.YurtHubProxyPort, "the port on which to proxy HTTP requests to kube-apiserver")
 	fs.IntVar(&o.YurtHubProxySecurePort, "proxy-secure-port", o.YurtHubProxySecurePort, "the port on which to proxy HTTPS requests to kube-apiserver")
-	fs.StringVar(&o.ServerAddr, "server-addr", o.ServerAddr, "the address of Kubernetes kube-apiserver,the format is: \"server1,server2,...\"")
+	fs.StringVar(&o.YurtHubNamespace, "namespace", o.YurtHubNamespace, "the namespace of YurtHub Server")
+	fs.StringVar(&o.ServerAddr, "server-addr", o.ServerAddr, "the address of Kubernetes kube-apiserver, the format is: \"server1,server2,...\"; when yurthub is in local mode, server-addr represents the service address of apiservers, the format is: \"ip:port\".")
 	fs.StringSliceVar(&o.YurtHubCertOrganizations, "hub-cert-organizations", o.YurtHubCertOrganizations, "Organizations that will be added into hub's apiserver client certificate, the format is: certOrg1,certOrg2,...")
 	fs.IntVar(&o.GCFrequency, "gc-frequency", o.GCFrequency, "the frequency to gc cache in storage(unit: minute).")
 	fs.StringVar(&o.NodeName, "node-name", o.NodeName, "the name of node that runs hub agent")
@@ -183,36 +203,42 @@ func (o *YurtHubOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&o.HeartbeatTimeoutSeconds, "heartbeat-timeout-seconds", o.HeartbeatTimeoutSeconds, " number of seconds after which the heartbeat times out.")
 	fs.IntVar(&o.HeartbeatIntervalSeconds, "heartbeat-interval-seconds", o.HeartbeatIntervalSeconds, " number of seconds for omitting one time heartbeat to remote server.")
 	fs.IntVar(&o.MaxRequestInFlight, "max-requests-in-flight", o.MaxRequestInFlight, "the maximum number of parallel requests.")
-	fs.StringVar(&o.JoinToken, "join-token", o.JoinToken, "the Join token for bootstrapping hub agent when --cert-mgr-mode=hubself.")
+	fs.StringVar(&o.JoinToken, "join-token", o.JoinToken, "the Join token for bootstrapping hub agent.")
+	fs.MarkDeprecated("join-token", "It is planned to be removed from OpenYurt in the version v1.5. Please use --bootstrap-file to bootstrap hub agent.")
+	fs.StringVar(&o.BootstrapMode, "bootstrap-mode", o.BootstrapMode, "the mode for bootstrapping hub agent(token, kubeletcertificate).")
+	fs.StringVar(&o.BootstrapFile, "bootstrap-file", o.BootstrapFile, "the bootstrap file for bootstrapping hub agent.")
 	fs.StringVar(&o.RootDir, "root-dir", o.RootDir, "directory path for managing hub agent files(pki, cache etc).")
 	fs.BoolVar(&o.Version, "version", o.Version, "print the version information.")
 	fs.BoolVar(&o.EnableProfiling, "profiling", o.EnableProfiling, "enable profiling via web interface host:port/debug/pprof/")
 	fs.BoolVar(&o.EnableDummyIf, "enable-dummy-if", o.EnableDummyIf, "enable dummy interface or not")
 	fs.BoolVar(&o.EnableIptables, "enable-iptables", o.EnableIptables, "enable iptables manager to setup rules for accessing hub agent")
+	fs.MarkDeprecated("enable-iptables", "It is planned to be removed from OpenYurt in the future version")
 	fs.StringVar(&o.HubAgentDummyIfIP, "dummy-if-ip", o.HubAgentDummyIfIP, "the ip address of dummy interface that used for container connect hub agent(exclusive ips: 169.254.31.0/24, 169.254.1.1/32)")
 	fs.StringVar(&o.HubAgentDummyIfName, "dummy-if-name", o.HubAgentDummyIfName, "the name of dummy interface that is used for hub agent")
 	fs.StringVar(&o.DiskCachePath, "disk-cache-path", o.DiskCachePath, "the path for kubernetes to storage metadata")
-	fs.BoolVar(&o.AccessServerThroughHub, "access-server-through-hub", o.AccessServerThroughHub, "enable pods access kube-apiserver through yurthub or not")
 	fs.BoolVar(&o.EnableResourceFilter, "enable-resource-filter", o.EnableResourceFilter, "enable to filter response that comes back from reverse proxy")
 	fs.StringSliceVar(&o.DisabledResourceFilters, "disabled-resource-filters", o.DisabledResourceFilters, "disable resource filters to handle response")
 	fs.StringVar(&o.NodePoolName, "nodepool-name", o.NodePoolName, "the name of node pool that runs hub agent")
-	fs.StringVar(&o.WorkingMode, "working-mode", o.WorkingMode, "the working mode of yurthub(edge, cloud).")
+	fs.StringVar(&o.WorkingMode, "working-mode", o.WorkingMode, "the working mode of yurthub(edge, cloud, local).")
 	fs.DurationVar(&o.KubeletHealthGracePeriod, "kubelet-health-grace-period", o.KubeletHealthGracePeriod, "the amount of time which we allow kubelet to be unresponsive before stop renew node lease")
 	fs.BoolVar(&o.EnableNodePool, "enable-node-pool", o.EnableNodePool, "enable list/watch nodepools resource or not for filters(only used for testing)")
+	fs.MarkDeprecated("enable-node-pool", "It is planned to be removed from OpenYurt in the future version, please use --enable-pool-service-topology instead")
 	fs.DurationVar(&o.MinRequestTimeout, "min-request-timeout", o.MinRequestTimeout, "An optional field indicating at least how long a proxy handler must keep a request open before timing it out. Currently only honored by the local watch request handler(use request parameter timeoutSeconds firstly), which picks a randomized value above this number as the connection timeout, to spread out load.")
 	fs.StringSliceVar(&o.CACertHashes, "discovery-token-ca-cert-hash", o.CACertHashes, "For token-based discovery, validate that the root CA public key matches this hash (format: \"<type>:<value>\").")
 	fs.BoolVar(&o.UnsafeSkipCAVerification, "discovery-token-unsafe-skip-ca-verification", o.UnsafeSkipCAVerification, "For token-based discovery, allow joining without --discovery-token-ca-cert-hash pinning.")
-	fs.BoolVar(&o.EnableCoordinator, "enable-coordinator", o.EnableCoordinator, "make yurthub aware of the pool coordinator")
+	fs.BoolVar(&o.EnableCoordinator, "enable-coordinator", o.EnableCoordinator, "make yurthub aware of the yurt coordinator")
 	fs.StringVar(&o.CoordinatorServerAddr, "coordinator-server-addr", o.CoordinatorServerAddr, "Coordinator APIServer address in format https://host:port")
-	fs.StringVar(&o.CoordinatorStoragePrefix, "coordinator-storage-prefix", o.CoordinatorStoragePrefix, "Pool-Coordinator etcd storage prefix, same as etcd-prefix of Kube-APIServer")
-	fs.StringVar(&o.CoordinatorStorageAddr, "coordinator-storage-addr", o.CoordinatorStorageAddr, "Address of Pool-Coordinator etcd, in the format host:port")
+	fs.StringVar(&o.CoordinatorStoragePrefix, "coordinator-storage-prefix", o.CoordinatorStoragePrefix, "Yurt-Coordinator etcd storage prefix, same as etcd-prefix of Kube-APIServer")
+	fs.StringVar(&o.CoordinatorStorageAddr, "coordinator-storage-addr", o.CoordinatorStorageAddr, "Address of Yurt-Coordinator etcd, in the format host:port")
 	bindFlags(&o.LeaderElection, fs)
+	fs.BoolVar(&o.EnablePoolServiceTopology, "enable-pool-service-topology", o.EnablePoolServiceTopology, "enable service topology feature in the node pool.")
+	fs.StringVar(&o.HostControlPlaneAddr, "host-control-plane-address", o.HostControlPlaneAddr, "the address (ip:port) of host kubernetes cluster that used for yurthub local mode.")
 }
 
 // bindFlags binds the LeaderElectionConfiguration struct fields to a flagset
 func bindFlags(l *componentbaseconfig.LeaderElectionConfiguration, fs *pflag.FlagSet) {
 	fs.BoolVar(&l.LeaderElect, "leader-elect", l.LeaderElect, ""+
-		"Start a leader election client and gain leadership based on pool coordinator")
+		"Start a leader election client and gain leadership based on yurt coordinator")
 	fs.DurationVar(&l.LeaseDuration.Duration, "leader-elect-lease-duration", l.LeaseDuration.Duration, ""+
 		"The duration that non-leader candidates will wait after observing a leadership "+
 		"renewal until attempting to acquire leadership of a led but unrenewed leader "+

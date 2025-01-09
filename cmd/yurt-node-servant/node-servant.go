@@ -26,28 +26,29 @@ import (
 
 	"github.com/openyurtio/openyurt/cmd/yurt-node-servant/config"
 	"github.com/openyurtio/openyurt/cmd/yurt-node-servant/convert"
-	preflightconvert "github.com/openyurtio/openyurt/cmd/yurt-node-servant/preflight-convert"
 	"github.com/openyurtio/openyurt/cmd/yurt-node-servant/revert"
+	upgrade "github.com/openyurtio/openyurt/cmd/yurt-node-servant/static-pod-upgrade"
 	"github.com/openyurtio/openyurt/pkg/projectinfo"
 )
 
 // node-servant
 // running on specific node, do convert/revert job
-// yurtctl convert/revert join/reset, yurtcluster operator shall start a k8s job to run this.
+// node-servant convert/revert join/reset, yurtcluster operator shall start a k8s job to run this.
 func main() {
-	rand.Seed(time.Now().UnixNano())
+	newRand := rand.New(rand.NewSource(time.Now().UnixNano()))
+	newRand.Seed(time.Now().UnixNano())
 
 	version := fmt.Sprintf("%#v", projectinfo.Get())
 	rootCmd := &cobra.Command{
 		Use:     "node-servant",
-		Short:   "node-servant do preflight-convert/convert/revert specific node",
+		Short:   "node-servant do convert/revert specific node",
 		Version: version,
 	}
 	rootCmd.PersistentFlags().String("kubeconfig", "", "The path to the kubeconfig file")
 	rootCmd.AddCommand(convert.NewConvertCmd())
 	rootCmd.AddCommand(revert.NewRevertCmd())
-	rootCmd.AddCommand(preflightconvert.NewxPreflightConvertCmd())
 	rootCmd.AddCommand(config.NewConfigCmd())
+	rootCmd.AddCommand(upgrade.NewUpgradeCmd())
 
 	if err := rootCmd.Execute(); err != nil { // run command
 		os.Exit(1)

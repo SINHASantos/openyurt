@@ -108,7 +108,7 @@ func (o *ServerOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.TunnelAgentConnectPort, "tunnel-agent-connect-port", o.TunnelAgentConnectPort, "The port on which to serve tcp packets from tunnel agent")
 	fs.StringVar(&o.SecurePort, "secure-port", o.SecurePort, "The port on which to serve HTTPS requests from cloud clients like prometheus")
 	fs.StringVar(&o.InsecurePort, "insecure-port", o.InsecurePort, "The port on which to serve HTTP requests from cloud clients like metrics-server")
-	fs.StringVar(&o.MetaPort, "meta-port", o.MetaPort, "The port on which to serve HTTP requests like profling, metrics")
+	fs.StringVar(&o.MetaPort, "meta-port", o.MetaPort, "The port on which to serve HTTP requests like profiling, metrics")
 }
 
 func (o *ServerOptions) Config() (*config.Config, error) {
@@ -127,9 +127,7 @@ func (o *ServerOptions) Config() (*config.Config, error) {
 	}
 
 	if o.CertDNSNames != "" {
-		for _, name := range strings.Split(o.CertDNSNames, ",") {
-			cfg.CertDNSNames = append(cfg.CertDNSNames, name)
-		}
+		cfg.CertDNSNames = append(cfg.CertDNSNames, strings.Split(o.CertDNSNames, ",")...)
 	}
 
 	if o.CertIPs != "" {
@@ -142,9 +140,9 @@ func (o *ServerOptions) Config() (*config.Config, error) {
 	}
 
 	if utilnet.IsIPv6String(o.BindAddr) {
-		cfg.IPFamily = iptables.ProtocolIpv6
+		cfg.IPFamily = iptables.ProtocolIPv6
 	} else {
-		cfg.IPFamily = iptables.ProtocolIpv4
+		cfg.IPFamily = iptables.ProtocolIPv4
 	}
 	cfg.ListenAddrForAgent = net.JoinHostPort(o.BindAddr, o.TunnelAgentConnectPort)
 	cfg.ListenAddrForMaster = net.JoinHostPort(o.BindAddr, o.SecurePort)
@@ -152,7 +150,7 @@ func (o *ServerOptions) Config() (*config.Config, error) {
 	cfg.ListenMetaAddr = net.JoinHostPort(o.InsecureBindAddr, o.MetaPort)
 	cfg.RootCert, err = certmanager.GenRootCertPool(o.KubeConfig, constants.YurttunnelCAFile)
 	if err != nil {
-		return nil, fmt.Errorf("fail to generate the rootCertPool: %w", err)
+		return nil, fmt.Errorf("could not generate the rootCertPool: %w", err)
 	}
 
 	// function 'kubeutil.CreateClientSet' will try to create the clientset

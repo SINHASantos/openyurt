@@ -20,16 +20,39 @@ import (
 	"crypto/tls"
 )
 
+const (
+	// KubeletCertificateBootstrapMode means that yurthub uses kubelet certificate
+	// that located at /var/lib/kubelet/pki/current-kubelet.pem to bootstrap instead of
+	// generating client certificates.
+	KubeletCertificateBootstrapMode = "kubeletcertificate"
+
+	// TokenBootstrapMode means that yurthub uses join token to create client certificates
+	// and bootstrap itself.
+	TokenBootstrapMode = "token"
+)
+
 // YurtCertificateManager is responsible for managing node certificate for yurthub
 type YurtCertificateManager interface {
-	Start()
-	Stop()
+	YurtClientCertificateManager
+	YurtServerCertificateManager
 	// Ready should be called after yurt certificate manager started by Start.
 	Ready() bool
+}
+
+// YurtClientCertificateManager is responsible for managing node client certificates for yurthub
+type YurtClientCertificateManager interface {
+	Start()
+	Stop()
 	UpdateBootstrapConf(joinToken string) error
 	GetHubConfFile() string
+	GetCAData() []byte
 	GetCaFile() string
 	GetAPIServerClientCert() *tls.Certificate
+}
+
+type YurtServerCertificateManager interface {
+	Start()
+	Stop()
 	GetHubServerCert() *tls.Certificate
 	GetHubServerCertFile() string
 }

@@ -83,7 +83,7 @@ func GetTunnelServerAddr(clientset kubernetes.Interface) (string, error) {
 	}
 
 	if tcpPort == 0 {
-		return "", errors.New("fail to get the port number")
+		return "", errors.New("could not get the port number")
 	}
 
 	return net.JoinHostPort(host, strconv.Itoa(int(tcpPort))), nil
@@ -97,6 +97,7 @@ func GetTunnelServerAddr(clientset kubernetes.Interface) (string, error) {
 //   1. when the type of x-tunnel-server-svc service is LB, make sure the first return ip is LB ip address
 //   2. when the type of x-tunnel-server-svc service is ClusterIP, if the x-tunnel-server-external-addr
 //      annotation is set, make sure the return ip is annotation setting.
+
 func GetYurttunelServerDNSandIP(
 	clientset kubernetes.Interface) ([]string, []net.IP, error) {
 	// get tunnel server resources

@@ -43,35 +43,6 @@ function set_flags() {
     docker cp $KUBECONFIG $edgeNodeContainerName:/root/.kube/config
 }
 
-# set up network
-function set_up_network() {
-    # set up bridge cni plugins for every node
-    if [ "$TARGET_PLATFORM" = "linux/amd64" ]; then
-        wget -O /tmp/cni.tgz https://github.com/containernetworking/plugins/releases/download/v1.1.1/cni-plugins-linux-amd64-v1.1.1.tgz
-    else
-        wget -O /tmp/cni.tgz https://github.com/containernetworking/plugins/releases/download/v1.1.1/cni-plugins-linux-arm64-v1.1.1.tgz
-    fi
-
-    docker cp /tmp/cni.tgz $cloudNodeContainerName:/opt/cni/bin/
-    docker exec -t $cloudNodeContainerName /bin/bash -c 'cd /opt/cni/bin && tar -zxf cni.tgz'
-
-    docker cp /tmp/cni.tgz $edgeNodeContainerName:/opt/cni/bin/
-    docker exec -t $edgeNodeContainerName /bin/bash -c 'cd /opt/cni/bin && tar -zxf cni.tgz'
-
-    docker cp /tmp/cni.tgz $edgeNodeContainer2Name:/opt/cni/bin/
-    docker exec -t $edgeNodeContainer2Name /bin/bash -c 'cd /opt/cni/bin && tar -zxf cni.tgz'
-
-    # deploy flannel DaemonSet
-    local flannelYaml="https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml"
-    local flannelDs="kube-flannel-ds"
-    local flannelNameSpace="kube-flannel"
-    local POD_CREATE_TIMEOUT=120s
-    curl -o /tmp/flannel.yaml $flannelYaml
-    kubectl apply -f /tmp/flannel.yaml
-    # check if flannel on every node is ready, if so, "daemon set "kube-flannel-ds" successfully rolled out"
-    kubectl rollout status daemonset kube-flannel-ds -n kube-flannel --timeout=${POD_CREATE_TIMEOUT}
-}
-
 function cleanup {
     rm -rf "$YURT_ROOT/test/e2e/e2e.test"
 }
@@ -139,23 +110,21 @@ function prepare_autonomy_tests {
     kubectl wait --for=condition=Ready pod/yurt-e2e-test-nginx-openyurt-e2e-test-worker2 --timeout=${POD_CREATE_TIMEOUT}
 
 #   set up dig in edge node1 
-    docker exec -t $edgeNodeContainerName /bin/bash -c "sed -i -r 's/([a-z]{2}.)?archive.ubuntu.com/old-releases.ubuntu.com/g' /etc/apt/sources.list"
-    docker exec -t $edgeNodeContainerName /bin/bash -c "sed -i -r 's/security.ubuntu.com/old-releases.ubuntu.com/g' /etc/apt/sources.list"
-    docker exec -t $edgeNodeContainerName /bin/bash -c "sed -i -r 's/ports.ubuntu.com\/ubuntu-ports/old-releases.ubuntu.com\/ubuntu/g' /etc/apt/sources.list"
-    docker exec -t $edgeNodeContainerName /bin/bash -c "sed -i -r 's/old-releases.ubuntu.com\/ubuntu-ports/old-releases.ubuntu.com\/ubuntu/g' /etc/apt/sources.list"
+#    docker exec -t $edgeNodeContainerName /bin/bash -c "sed -i -r 's/([a-z]{2}.)?archive.ubuntu.com/old-releases.ubuntu.com/g' /etc/apt/sources.list"
+#    docker exec -t $edgeNodeContainerName /bin/bash -c "sed -i -r 's/security.ubuntu.com/old-releases.ubuntu.com/g' /etc/apt/sources.list"
+#    docker exec -t $edgeNodeContainerName /bin/bash -c "sed -i -r 's/ports.ubuntu.com\/ubuntu-ports/old-releases.ubuntu.com\/ubuntu/g' /etc/apt/sources.list"
+#    docker exec -t $edgeNodeContainerName /bin/bash -c "sed -i -r 's/old-releases.ubuntu.com\/ubuntu-ports/old-releases.ubuntu.com\/ubuntu/g' /etc/apt/sources.list"
     docker exec -t $edgeNodeContainerName /bin/bash -c "apt-get update && apt-get install dnsutils -y"
 
 #   set up dig in edge node2
-    docker exec -t $edgeNodeContainer2Name /bin/bash -c "sed -i -r 's/([a-z]{2}.)?archive.ubuntu.com/old-releases.ubuntu.com/g' /etc/apt/sources.list"
-    docker exec -t $edgeNodeContainer2Name /bin/bash -c "sed -i -r 's/security.ubuntu.com/old-releases.ubuntu.com/g' /etc/apt/sources.list"
-    docker exec -t $edgeNodeContainer2Name /bin/bash -c "sed -i -r 's/ports.ubuntu.com\/ubuntu-ports/old-releases.ubuntu.com\/ubuntu/g' /etc/apt/sources.list"
-    docker exec -t $edgeNodeContainer2Name /bin/bash -c "sed -i -r 's/old-releases.ubuntu.com\/ubuntu-ports/old-releases.ubuntu.com\/ubuntu/g' /etc/apt/sources.list"
+#    docker exec -t $edgeNodeContainer2Name /bin/bash -c "sed -i -r 's/([a-z]{2}.)?archive.ubuntu.com/old-releases.ubuntu.com/g' /etc/apt/sources.list"
+#    docker exec -t $edgeNodeContainer2Name /bin/bash -c "sed -i -r 's/security.ubuntu.com/old-releases.ubuntu.com/g' /etc/apt/sources.list"
+#    docker exec -t $edgeNodeContainer2Name /bin/bash -c "sed -i -r 's/ports.ubuntu.com\/ubuntu-ports/old-releases.ubuntu.com\/ubuntu/g' /etc/apt/sources.list"
+#    docker exec -t $edgeNodeContainer2Name /bin/bash -c "sed -i -r 's/old-releases.ubuntu.com\/ubuntu-ports/old-releases.ubuntu.com\/ubuntu/g' /etc/apt/sources.list"
     docker exec -t $edgeNodeContainer2Name /bin/bash -c "apt-get update && apt-get install dnsutils -y"
 }
 
 GOOS=${LOCAL_OS} GOARCH=${LOCAL_ARCH} set_flags
-
-set_up_network
 
 cleanup
 

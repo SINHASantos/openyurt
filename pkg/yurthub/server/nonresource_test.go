@@ -19,7 +19,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -70,7 +70,7 @@ func TestLocalCacheHandler(t *testing.T) {
 		statusCode       int
 		metav1StatusCode int
 	}{
-		"failed to get from local cache, because it does not exist": {
+		"can not get from local cache, because it does not exist": {
 			path:             "/version",
 			initData:         nil,
 			statusCode:       http.StatusNotFound,
@@ -85,7 +85,7 @@ func TestLocalCacheHandler(t *testing.T) {
 
 	for k, tt := range testcases {
 		t.Run(k, func(t *testing.T) {
-			key := storage.ClusterInfoKey{
+			key := &storage.ClusterInfoKey{
 				ClusterInfoType: nonResourceReqPaths[tt.path],
 				UrlPath:         tt.path,
 			}
@@ -104,7 +104,7 @@ func TestLocalCacheHandler(t *testing.T) {
 				t.Errorf("expect status code %d, but got %d", tt.statusCode, resp.Code)
 			}
 
-			b, _ := ioutil.ReadAll(resp.Body)
+			b, _ := io.ReadAll(resp.Body)
 			if tt.metav1StatusCode != 0 {
 				var status metav1.Status
 				err := json.Unmarshal(b, &status)
@@ -149,13 +149,13 @@ func TestNonResourceHandler(t *testing.T) {
 			initData:   []byte("fake resource"),
 			statusCode: http.StatusOK,
 		},
-		"failed to get non resource because of internal error": {
+		"can not get non resource because of internal error": {
 			path:             "/apis/discovery.k8s.io/v1beta1",
 			err:              internalError,
 			statusCode:       http.StatusInternalServerError,
 			metav1StatusCode: http.StatusInternalServerError,
 		},
-		"failed to get non resource because it does not exist": {
+		"can not get non resource because it does not exist": {
 			path:             "/apis/discovery.k8s.io/v1",
 			err:              notFoundError,
 			statusCode:       http.StatusNotFound,
@@ -171,17 +171,17 @@ func TestNonResourceHandler(t *testing.T) {
 					case nil:
 						return &http.Response{
 							StatusCode: http.StatusOK,
-							Body:       ioutil.NopCloser(strings.NewReader(string(tt.initData))),
+							Body:       io.NopCloser(strings.NewReader(string(tt.initData))),
 						}, nil
 					case notFoundError:
 						return &http.Response{
 							StatusCode: http.StatusNotFound,
-							Body:       ioutil.NopCloser(bytes.NewReader([]byte{})),
+							Body:       io.NopCloser(bytes.NewReader([]byte{})),
 						}, nil
 					default:
 						return &http.Response{
 							StatusCode: http.StatusInternalServerError,
-							Body:       ioutil.NopCloser(bytes.NewReader([]byte{})),
+							Body:       io.NopCloser(bytes.NewReader([]byte{})),
 						}, err
 					}
 				}),
@@ -203,7 +203,7 @@ func TestNonResourceHandler(t *testing.T) {
 				t.Errorf("expect status code %d, but got %d", tt.statusCode, resp.Code)
 			}
 
-			b, _ := ioutil.ReadAll(resp.Body)
+			b, _ := io.ReadAll(resp.Body)
 			if tt.metav1StatusCode != 0 {
 				var status metav1.Status
 				err := json.Unmarshal(b, &status)

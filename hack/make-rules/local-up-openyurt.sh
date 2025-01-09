@@ -54,27 +54,22 @@ readonly REQUIRED_CMD=(
 
 readonly REQUIRED_IMAGES=(
     openyurt/node-servant
-    openyurt/yurt-tunnel-agent
-    openyurt/yurt-tunnel-server
-    openyurt/yurt-controller-manager
+    openyurt/yurt-manager
     openyurt/yurthub
+    openyurt/yurt-iot-dock
 )
 
 readonly LOCAL_ARCH=$(go env GOHOSTARCH)
 readonly LOCAL_OS=$(go env GOHOSTOS)
 readonly CLUSTER_NAME="openyurt-e2e-test"
-readonly KUBERNETESVERSION=${KUBERNETESVERSION:-"v1.22"}
-readonly NODES_NUM=${NODES_NUM:-2}
+readonly KUBERNETESVERSION=${KUBERNETESVERSION:-"v1.30"}
+readonly NODES_NUM=${NODES_NUM:-3}
 readonly KIND_KUBECONFIG=${KIND_KUBECONFIG:-${HOME}/.kube/config}
 readonly DISABLE_DEFAULT_CNI=${DISABLE_DEFAULT_CNI:-"false"}
-ENABLE_DUMMY_IF=true
-if [[ "${LOCAL_OS}" == darwin ]]; then
-  ENABLE_DUMMY_IF=false
-fi
 
 function install_kind {
     echo "Begin to install kind"
-    GO111MODULE="on" go get sigs.k8s.io/kind@v0.12.0
+    GO111MODULE="on" go install sigs.k8s.io/kind@v0.25.0
 }
 
 function install_docker {
@@ -135,7 +130,7 @@ function local_up_openyurt {
     $YURT_ROOT/test/e2e/e2e.test init \
       --kubernetes-version=${KUBERNETESVERSION} --kube-config=${KIND_KUBECONFIG} \
       --cluster-name=${CLUSTER_NAME} --openyurt-version=${YURT_VERSION} --use-local-images --ignore-error \
-      --node-num=${NODES_NUM} --enable-dummy-if=${ENABLE_DUMMY_IF} --disable-default-cni=${DISABLE_DEFAULT_CNI}
+      --node-num=${NODES_NUM} --disable-default-cni=${DISABLE_DEFAULT_CNI}
 }
 
 function cleanup {

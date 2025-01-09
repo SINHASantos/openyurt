@@ -22,12 +22,10 @@ source "${YURT_ROOT}/hack/lib/init.sh"
 source "${YURT_ROOT}/hack/lib/build.sh"
 
 readonly IMAGE_TARGETS=(
-    yurt-controller-manager
-    yurt-tunnel-agent 
-    yurt-tunnel-server
     yurt-node-servant
     yurthub
     yurt-manager
+    yurt-iot-dock
 )
 
 http_proxy=${http_proxy:-}
@@ -37,7 +35,8 @@ REGION=${REGION:-}
 IMAGE_REPO=${IMAGE_REPO:-"openyurt"}
 IMAGE_TAG=${IMAGE_TAG:-$(get_image_tag)}
 DOCKER_BUILD_ARGS=""
-BUILD_BASE_IMAGE="golang:1.17.1"
+DOCKER_EXTRA_ENVS=""
+BUILD_BASE_IMAGE="golang:1.22.3"
 BUILD_GOPROXY=$(go env GOPROXY)
 GOPROXY_CN="https://goproxy.cn"
 APKREPO_MIRROR_CN="mirrors.aliyun.com"
@@ -49,10 +48,12 @@ fi
 
 if [[ ! -z ${http_proxy} ]]; then 
     DOCKER_BUILD_ARGS="${DOCKER_BUILD_ARGS} --build-arg http_proxy=${http_proxy}"
+    DOCKER_EXTRA_ENVS="--env http_proxy=${http_proxy}"
 fi
 
 if [[ ! -z ${https_proxy} ]]; then
     DOCKER_BUILD_ARGS="${DOCKER_BUILD_ARGS} --build-arg https_proxy=${https_proxy}"
+    DOCKER_EXTRA_ENVS="${DOCKER_EXTRA_ENVS=} --env https_proxy=${https_proxy}"
 fi
 
 if [[ ! -z ${TARGET_PLATFORMS} ]]; then
@@ -77,9 +78,9 @@ docker run \
     --env GOOS=${TARGETOS} \
     --env GOARCH=${TARGETARCH} \
     --env GOCACHE=/tmp/ \
-    --user $(id -u ${USER}):$(id -g ${USER}) \
+    ${DOCKER_EXTRA_ENVS} \
     ${BUILD_BASE_IMAGE} \
-    ./hack/make-rules/build.sh ${targets[@]}
+    /bin/bash -c "git config --global --add safe.directory /build && GIT_VERSION=${GIT_VERSION} ./hack/make-rules/build.sh ${targets[@]}"
 
 # build images
 for image in ${targets[@]}; do

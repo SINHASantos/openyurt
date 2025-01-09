@@ -26,9 +26,14 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/openyurtio/openyurt/pkg/yurthub/filter"
+	"github.com/openyurtio/openyurt/pkg/yurthub/filter/base"
 )
 
 const (
+	// FilterName filter is used to comment kubeconfig in kube-system/kube-proxy configmap
+	// in order to make kube-proxy to use InClusterConfig to access kube-apiserver.
+	FilterName = "inclusterconfig"
+
 	KubeProxyConfigMapNamespace = "kube-system"
 	KubeProxyConfigMapName      = "kube-proxy"
 	KubeProxyDataKey            = "config.conf"
@@ -36,47 +41,41 @@ const (
 )
 
 // Register registers a filter
-func Register(filters *filter.Filters) {
-	filters.Register(filter.InClusterConfigFilterName, func() (filter.ObjectFilter, error) {
-		return &inClusterConfigFilter{}, nil
+func Register(filters *base.Filters) {
+	filters.Register(FilterName, func() (filter.ObjectFilter, error) {
+		return NewInClusterConfigFilter()
 	})
 }
 
 type inClusterConfigFilter struct{}
 
-func (iccf *inClusterConfigFilter) Name() string {
-	return filter.InClusterConfigFilterName
+func NewInClusterConfigFilter() (filter.ObjectFilter, error) {
+	return &inClusterConfigFilter{}, nil
 }
 
-func (iccf *inClusterConfigFilter) SupportedResourceAndVerbs() map[string]sets.String {
-	return map[string]sets.String{
-		"configmaps": sets.NewString("get", "list", "watch"),
+func (iccf *inClusterConfigFilter) Name() string {
+	return FilterName
+}
+
+func (iccf *inClusterConfigFilter) SupportedResourceAndVerbs() map[string]sets.Set[string] {
+	return map[string]sets.Set[string]{
+		"configmaps": sets.New("get", "list", "watch"),
 	}
 }
 
 func (iccf *inClusterConfigFilter) Filter(obj runtime.Object, _ <-chan struct{}) runtime.Object {
 	switch v := obj.(type) {
-	case *v1.ConfigMapList:
-		for i := range v.Items {
-			newCM, mutated := mutateKubeProxyConfigMap(&v.Items[i])
-			if mutated {
-				v.Items[i] = *newCM
-				break
-			}
-		}
-		return v
 	case *v1.ConfigMap:
-		cm, _ := mutateKubeProxyConfigMap(v)
-		return cm
+		return mutateKubeProxyConfigMap(v)
 	default:
 		return v
 	}
 }
 
-func mutateKubeProxyConfigMap(cm *v1.ConfigMap) (*v1.ConfigMap, bool) {
-	mutated := false
+func mutateKubeProxyConfigMap(cm *v1.ConfigMap) *v1.ConfigMap {
 	if cm.Namespace == KubeProxyConfigMapNamespace && cm.Name == KubeProxyConfigMapName {
 		if cm.Data != nil && len(cm.Data[KubeProxyDataKey]) != 0 {
+			mutated := false
 			parts := make([]string, 0)
 			for _, line := range strings.Split(cm.Data[KubeProxyDataKey], "\n") {
 				items := strings.Split(strings.Trim(line, " "), ":")
@@ -94,5 +93,5 @@ func mutateKubeProxyConfigMap(cm *v1.ConfigMap) (*v1.ConfigMap, bool) {
 		}
 	}
 
-	return cm, mutated
+	return cm
 }

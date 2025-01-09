@@ -9,10 +9,8 @@ on:
   workflow_dispatch: {}
 
 env:
-  # Common versions
-  GO_VERSION: '1.17'
-  GOLANGCI_VERSION: 'v1.40'
-  DOCKER_BUILDX_VERSION: 'v0.4.2'
+  GO_VERSION: '1.22.3'
+  GOLANGCI_VERSION: 'v1.55.2'
 
   # Common users. We can't run a step 'if secrets.AWS_USR != ""' but we can run
   # a step 'if env.AWS_USR' != ""', so we copy these to succinctly test whether
@@ -21,44 +19,58 @@ env:
   AWS_USR: ${{ secrets.AWS_USR }}
 
 jobs:
+  typos-check:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Actions Repository
+        uses: actions/checkout@v4
+      - name: Check spelling with custom config file
+        uses: crate-ci/typos@v1.23.2
+        with:
+          config: ./typos.toml
 
   verify:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
       - name: Verify Code
         run: make verify
 
   golangci-lint:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: true
       - name: Setup Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Lint golang code
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v6.0.1
         with:
           version: ${{ env.GOLANGCI_VERSION }}
-          args: -v
+          args: --verbose
+          skip-cache: true
+          mode: readonly
 
-  markdownlint-misspell-shellcheck:
-    runs-on: ubuntu-18.04
-    # this image is build from Dockerfile
-    # https://github.com/pouchcontainer/pouchlinter/blob/master/Dockerfile
-    container: pouchcontainer/pouchlinter:v0.1.2
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-      - name: Run misspell
-        run: find  ./* -name  "*"  | xargs misspell -error
-      - name: Lint markdown files
-        run: find  ./ -name  "*.md" | grep -v enhancements |  grep -v .github |  xargs mdl -r ~MD010,~MD013,~MD022,~MD024,~MD029,~MD031,~MD032,~MD033,~MD034,~MD036
+#  markdownlint-misspell-shellcheck:
+#    runs-on: ubuntu-22.04
+#    # this image is build from Dockerfile
+#    # https://github.com/pouchcontainer/pouchlinter/blob/master/Dockerfile
+#    container: pouchcontainer/pouchlinter:v0.1.2
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v3
+#      - name: Run misspell
+#        run: find  ./* -name  "*"  | xargs misspell -error
+#      - name: Lint markdown files
+#        run: find  ./ -name  "*.md" | grep -v enhancements |  grep -v .github
 #      - name: Check markdown links
 #        run: |
 #          set +e
@@ -73,55 +85,55 @@ jobs:
 #          bash -c "exit $code";
 
   unit-tests:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - name: Fetch History
         run: git fetch --prune --unshallow
       - name: Setup Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-      - name: Cache Go Dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: ${{ runner.os }}-go-
+#      - name: Cache Go Dependencies
+#        uses: actions/cache@v3
+#        with:
+#          path: ~/go/pkg/mod
+#          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+#          restore-keys: ${{ runner.os }}-go-
       - name: Run Unit Tests
         run: make test
       - name: Publish Unit Test Coverage
         # only publish result in openyurt repo
         if: github.repository == 'openyurtio/openyurt'
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4.5.0
         with:
           name: codecov-umbrella
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: unittests
           files: ./cover.out,./yurttunnel-cover.out
+          version: v0.6.0
           fail_ci_if_error: true
           verbose: true
   e2e-tests:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0  
-      - uses: actions/setup-go@v3
+      - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-      - uses: actions/cache@v3
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: ${{ runner.os }}-go-
-      
+#      - uses: actions/cache@v3
+#        with:
+#          path: ~/go/pkg/mod
+#          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+#          restore-keys: ${{ runner.os }}-go-
       - name: Install Required Commands
         run: |
-          go get sigs.k8s.io/kind@v0.12.0
-          curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.22.3/bin/linux/amd64/kubectl && sudo install kubectl /usr/local/bin/kubectl
+          go install sigs.k8s.io/kind@v0.25.0
+          curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.30.1/bin/linux/amd64/kubectl && sudo install kubectl /usr/local/bin/kubectl
       - name: Build Images
         run: make docker-build
       - name: Local Up Openyurt Cluster With Kind

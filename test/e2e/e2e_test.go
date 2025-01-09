@@ -39,7 +39,6 @@ import (
 	"github.com/openyurtio/openyurt/test/e2e/util/ginkgowrapper"
 	_ "github.com/openyurtio/openyurt/test/e2e/yurt"
 	"github.com/openyurtio/openyurt/test/e2e/yurtconfig"
-	_ "github.com/openyurtio/openyurt/test/e2e/yurttunnel"
 )
 
 var (
@@ -75,6 +74,9 @@ var _ = ginkgo.BeforeSuite(func() {
 	_, err = ns.CreateNameSpace(c, constants.YurtE2ENamespaceName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "fail to create namespace")
 
+	err = util.PrepareNodePoolWithNode(context.TODO(), yurtconfig.YurtE2eCfg.RuntimeClient, "openyurt-e2e-test-worker")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "fail to create a nodepool with node")
+
 	if labelFilter([]string{"edge-autonomy"}) {
 		// get nginx podIP on edge node worker2
 		cs := c
@@ -92,7 +94,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "fail to get service : "+constants.NginxServiceName)
 
 		yurthub.NginxServiceIP = nginxSvc.Spec.ClusterIP
-		klog.Infof("get ServiceIP of service : " + constants.NginxServiceName + " IP: " + yurthub.NginxServiceIP)
+		klog.Info("get ServiceIP of service : " + constants.NginxServiceName + " IP: " + yurthub.NginxServiceIP)
 
 		//get coredns serviceIP
 		ginkgo.By("get service info" + constants.CoreDNSServiceName)
@@ -100,7 +102,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		gomega.Expect(error).NotTo(gomega.HaveOccurred(), "fail to get service : "+constants.CoreDNSServiceName)
 
 		yurthub.CoreDNSServiceIP = coreDNSSvc.Spec.ClusterIP
-		klog.Infof("get ServiceIP of service : " + constants.CoreDNSServiceName + " IP: " + yurthub.CoreDNSServiceIP)
+		klog.Info("get ServiceIP of service : " + constants.CoreDNSServiceName + " IP: " + yurthub.CoreDNSServiceIP)
 
 		// disconnect cloud node
 		cmd := exec.Command("/bin/bash", "-c", "docker network disconnect kind "+constants.YurtCloudNodeName)

@@ -64,7 +64,7 @@ func NewDiskStorage(dir string) (storage.Store, error) {
 	fsOperator := &fs.FileSystemOperator{}
 
 	if err := fsOperator.CreateDir(dir); err != nil && err != fs.ErrExists {
-		return nil, fmt.Errorf("failed to create cache path %s, %v", dir, err)
+		return nil, fmt.Errorf("could not create cache path %s, %v", dir, err)
 	}
 
 	// prune suffix "/" of dir
@@ -128,7 +128,7 @@ func (ds *diskStorage) Create(key storage.Key, content []byte) error {
 		return storage.ErrKeyExists
 	}
 	if err != nil {
-		return fmt.Errorf("failed to create file %s, %v", path, err)
+		return fmt.Errorf("could not create file %s, %v", path, err)
 	}
 	return nil
 }
@@ -151,7 +151,7 @@ func (ds *diskStorage) Delete(key storage.Key) error {
 		return ds.fsOperator.DeleteDir(path)
 	}
 	if err := ds.fsOperator.DeleteFile(path); err != nil {
-		return fmt.Errorf("failed to delete file %s, %v", path, err)
+		return fmt.Errorf("could not delete file %s, %v", path, err)
 	}
 
 	return nil
@@ -180,7 +180,7 @@ func (ds *diskStorage) Get(key storage.Key) ([]byte, error) {
 	case fs.ErrIsNotFile:
 		return nil, storage.ErrKeyHasNoContent
 	default:
-		return buf, fmt.Errorf("failed to read file at %s, %v", path, err)
+		return buf, fmt.Errorf("could not read file at %s, %v", path, err)
 	}
 }
 
@@ -206,7 +206,7 @@ func (ds *diskStorage) List(key storage.Key) ([][]byte, error) {
 		for _, filePath := range files {
 			buf, err := ds.fsOperator.Read(filePath)
 			if err != nil {
-				return nil, fmt.Errorf("failed to read file at %s, %v", filePath, err)
+				return nil, fmt.Errorf("could not read file at %s, %v", filePath, err)
 			}
 			bb = append(bb, buf)
 		}
@@ -216,14 +216,14 @@ func (ds *diskStorage) List(key storage.Key) ([][]byte, error) {
 	case fs.ErrIsNotDir:
 		// possibly it is a regular file, try to read it directly
 		if buf, rerr := ds.fsOperator.Read(absPath); rerr != nil {
-			return nil, fmt.Errorf("failed to list file at %s, %v", absPath, rerr)
+			return nil, fmt.Errorf("could not list file at %s, %v", absPath, rerr)
 		} else {
 			bb = append(bb, buf)
 		}
 		return bb, nil
 	default:
 		// err != nil
-		return nil, fmt.Errorf("failed to get all files under %s, %v", absPath, err)
+		return nil, fmt.Errorf("could not get all files under %s, %v", absPath, err)
 	}
 }
 
@@ -253,13 +253,13 @@ func (ds *diskStorage) Update(key storage.Key, content []byte, rv uint64) ([]byt
 		return nil, storage.ErrStorageNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file at %s, %v", absPath, err)
+		return nil, fmt.Errorf("could not read file at %s, %v", absPath, err)
 	}
 
 	klog.V(4).Infof("find key %s exists when updating it", storageKey.Key())
 	ok, err := ds.ifFresherThan(old, rv)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get rv of file %s, %v", absPath, err)
+		return nil, fmt.Errorf("could not get rv of file %s, %v", absPath, err)
 	}
 	if !ok {
 		return old, storage.ErrUpdateConflict
@@ -268,14 +268,14 @@ func (ds *diskStorage) Update(key storage.Key, content []byte, rv uint64) ([]byt
 	// update the file
 	tmpPath := filepath.Join(ds.baseDir, getTmpKey(storageKey).Key())
 	if err := ds.fsOperator.Rename(absPath, tmpPath); err != nil {
-		return nil, fmt.Errorf("failed to backup file %s, %v", absPath, err)
+		return nil, fmt.Errorf("could not backup file %s, %v", absPath, err)
 	}
 	if err := ds.fsOperator.CreateFile(absPath, content); err != nil {
 		// We can ensure that the file actually exists, so it should not be ErrNotExists
-		return nil, fmt.Errorf("failed to write to file %s, %v", absPath, err)
+		return nil, fmt.Errorf("could not write to file %s, %v", absPath, err)
 	}
 	if err := ds.fsOperator.DeleteFile(tmpPath); err != nil {
-		return nil, fmt.Errorf("failed to delete backup file %s, %v", tmpPath, err)
+		return nil, fmt.Errorf("could not delete backup file %s, %v", tmpPath, err)
 	}
 	return content, nil
 }
@@ -305,7 +305,7 @@ func (ds *diskStorage) ListResourceKeysOfComponent(component string, gvr schema.
 		return nil, storage.ErrStorageNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to list files at %s, %v", filepath.Join(ds.baseDir, storageKey.Key()), err)
+		return nil, fmt.Errorf("could not list files at %s, %v", filepath.Join(ds.baseDir, storageKey.Key()), err)
 	}
 
 	keys := make([]storage.Key, len(files))
@@ -364,7 +364,7 @@ func (ds *diskStorage) ReplaceComponentList(component string, gvr schema.GroupVe
 	tmpPath := filepath.Join(ds.baseDir, tmpRootKey.Key())
 	if !fs.IfExists(absPath) {
 		if err := ds.fsOperator.CreateDir(absPath); err != nil {
-			return fmt.Errorf("failed to create dir at %s", absPath)
+			return fmt.Errorf("could not create dir at %s", absPath)
 		}
 		if len(contents) == 0 {
 			// nothing need to create, so just return
@@ -374,7 +374,7 @@ func (ds *diskStorage) ReplaceComponentList(component string, gvr schema.GroupVe
 	if ok, err := fs.IsDir(absPath); err == nil && !ok {
 		return fmt.Errorf("%s is not a dir", absPath)
 	} else if err != nil {
-		return fmt.Errorf("failed to check the path %s, %v", absPath, err)
+		return fmt.Errorf("could not check the path %s, %v", absPath, err)
 	}
 	// absPath exists and is a dir
 	if err := ds.fsOperator.Rename(absPath, tmpPath); err != nil {
@@ -383,14 +383,19 @@ func (ds *diskStorage) ReplaceComponentList(component string, gvr schema.GroupVe
 
 	// 2. create new file with contents
 	// TODO: if error happens, we may need retry mechanism, or add some mechanism to do consistency check.
+	// create abspath dir in case that contents is empty
+	if err := ds.fsOperator.CreateDir(absPath); err != nil {
+		klog.Errorf("could not create dir at %s, %v", absPath, err)
+		return err
+	}
 	for key, data := range contents {
 		path := filepath.Join(ds.baseDir, key.Key())
 		if err := ds.fsOperator.CreateDir(filepath.Dir(path)); err != nil && err != fs.ErrExists {
-			klog.Errorf("failed to create dir at %s, %v", filepath.Dir(path), err)
+			klog.Errorf("could not create dir at %s, %v", filepath.Dir(path), err)
 			continue
 		}
 		if err := ds.fsOperator.CreateFile(path, data); err != nil {
-			klog.Errorf("failed to write data to %s, %v", path, err)
+			klog.Errorf("could not write data to %s, %v", path, err)
 			continue
 		}
 		klog.V(4).Infof("[diskStorage] ReplaceComponentList store data at %s", path)
@@ -416,55 +421,41 @@ func (ds *diskStorage) DeleteComponentResources(component string) error {
 
 	absKey := filepath.Join(ds.baseDir, rootKey.Key())
 	if err := ds.fsOperator.DeleteDir(absKey); err != nil {
-		return fmt.Errorf("failed to delete path %s, %v", absKey, err)
+		return fmt.Errorf("could not delete path %s, %v", absKey, err)
 	}
 	return nil
 }
 
-func (ds *diskStorage) SaveClusterInfo(key storage.ClusterInfoKey, content []byte) error {
-	var path string
-	switch key.ClusterInfoType {
-	case storage.APIsInfo, storage.Version:
-		path = filepath.Join(ds.baseDir, string(key.ClusterInfoType))
-	case storage.APIResourcesInfo:
-		translatedURLPath := strings.ReplaceAll(key.UrlPath, "/", "_")
-		path = filepath.Join(ds.baseDir, translatedURLPath)
-	default:
+func (ds *diskStorage) SaveClusterInfo(key storage.Key, content []byte) error {
+	if key.Key() == "" {
 		return storage.ErrUnknownClusterInfoType
 	}
-
+	path := filepath.Join(ds.baseDir, key.Key())
 	if err := ds.fsOperator.CreateFile(path, content); err != nil {
 		if err == fs.ErrExists {
 			// file exists, overwrite it with content
 			if werr := ds.fsOperator.Write(path, content); werr != nil {
-				return fmt.Errorf("failed to update clusterInfo %s at path %s, %v", key.ClusterInfoType, path, werr)
+				return fmt.Errorf("could not update clusterInfo at path %s, %v", path, werr)
 			}
 			return nil
 		}
-		return fmt.Errorf("failed to create %s clusterInfo file at path %s, %v", key.ClusterInfoType, path, err)
+		return fmt.Errorf("could not create clusterInfo file at path %s, %v", path, err)
 	}
 	return nil
 }
 
-func (ds *diskStorage) GetClusterInfo(key storage.ClusterInfoKey) ([]byte, error) {
-	var path string
-	switch key.ClusterInfoType {
-	case storage.APIsInfo, storage.Version:
-		path = filepath.Join(ds.baseDir, string(key.ClusterInfoType))
-	case storage.APIResourcesInfo:
-		translatedURLPath := strings.ReplaceAll(key.UrlPath, "/", "_")
-		path = filepath.Join(ds.baseDir, translatedURLPath)
-	default:
+func (ds *diskStorage) GetClusterInfo(key storage.Key) ([]byte, error) {
+	if key.Key() == "" {
 		return nil, storage.ErrUnknownClusterInfoType
 	}
-
+	path := filepath.Join(ds.baseDir, key.Key())
 	var buf []byte
 	var err error
 	if buf, err = ds.fsOperator.Read(path); err != nil {
 		if err == fs.ErrNotExists {
 			return nil, storage.ErrStorageNotFound
 		}
-		return nil, fmt.Errorf("failed to read %s clusterInfo file at %s, %v", key.ClusterInfoType, path, err)
+		return nil, fmt.Errorf("could not read clusterInfo file at %s, %v", path, err)
 	}
 	return buf, nil
 }
@@ -492,12 +483,12 @@ func (ds *diskStorage) Recover() error {
 			switch {
 			case info.Mode().IsDir():
 				if err := ds.recoverDir(path); err != nil {
-					return fmt.Errorf("failed to recover dir %s, %v", path, err)
+					return fmt.Errorf("could not recover dir %s, %v", path, err)
 				}
 				recoveredDir[path] = struct{}{}
 			case info.Mode().IsRegular():
 				if err := ds.recoverFile(path); err != nil {
-					return fmt.Errorf("failed to recover file %s, %v", path, err)
+					return fmt.Errorf("could not recover file %s, %v", path, err)
 				}
 			default:
 				klog.Warningf("unrecognized file %s when recovering diskStorage", path)
@@ -523,7 +514,7 @@ func (ds *diskStorage) recoverFile(tmpPath string) error {
 			return fmt.Errorf("failed at origin path %s, isRegularFile: %v, error: %v", path, ok, err)
 		}
 		if err := ds.fsOperator.DeleteFile(path); err != nil {
-			return fmt.Errorf("failed to delete file at %s, %v", path, err)
+			return fmt.Errorf("could not delete file at %s, %v", path, err)
 		}
 	}
 	if err := ds.fsOperator.Rename(tmpPath, path); err != nil {
@@ -545,7 +536,7 @@ func (ds *diskStorage) recoverDir(tmpPath string) error {
 			return fmt.Errorf("failed at origin path %s, isDir: %v, error: %v", path, ok, err)
 		}
 		if err := ds.fsOperator.DeleteDir(path); err != nil {
-			return fmt.Errorf("failed to delete dir at %s, %v", path, err)
+			return fmt.Errorf("could not delete dir at %s, %v", path, err)
 		}
 	}
 	if err := ds.fsOperator.Rename(tmpPath, path); err != nil {
@@ -585,11 +576,11 @@ func (ds *diskStorage) ifFresherThan(oldObj []byte, newRV uint64) (bool, error) 
 	unstructuredObj := &unstructured.Unstructured{}
 	curObj, _, err := ds.serializer.Decode(oldObj, nil, unstructuredObj)
 	if err != nil {
-		return false, fmt.Errorf("failed to decode obj, %v", err)
+		return false, fmt.Errorf("could not decode obj, %v", err)
 	}
 	curRv, err := ObjectResourceVersion(curObj)
 	if err != nil {
-		return false, fmt.Errorf("failed to get rv of obj, %v", err)
+		return false, fmt.Errorf("could not get rv of obj, %v", err)
 	}
 	if newRV < curRv {
 		return false, nil
@@ -606,7 +597,7 @@ func (ds *diskStorage) unLockKey(key storageKey) {
 func ifEnhancement(baseDir string, fsOperator fs.FileSystemOperator) (bool, error) {
 	compDirs, err := fsOperator.List(baseDir, fs.ListModeDirs, false)
 	if err != nil {
-		return false, fmt.Errorf("failed to list dirs under %s, %v", baseDir, err)
+		return false, fmt.Errorf("could not list dirs under %s, %v", baseDir, err)
 	}
 
 	for _, compDir := range compDirs {
@@ -618,7 +609,7 @@ func ifEnhancement(baseDir string, fsOperator fs.FileSystemOperator) (bool, erro
 
 		resDirs, err := fsOperator.List(compDir, fs.ListModeDirs, false)
 		if err != nil {
-			return false, fmt.Errorf("failed to list dirs under %s, %v", compDir, err)
+			return false, fmt.Errorf("could not list dirs under %s, %v", compDir, err)
 		}
 
 		for _, resDir := range resDirs {
@@ -656,9 +647,9 @@ func extractInfoFromPath(baseDir, path string, isRoot bool) (component, gvr, nam
 		err = fmt.Errorf("path %s does not under %s", path, baseDir)
 		return
 	}
-	trimedPath := strings.TrimPrefix(path, baseDir)
-	trimedPath = strings.TrimPrefix(trimedPath, "/")
-	elems := strings.Split(trimedPath, "/")
+	trimmedPath := strings.TrimPrefix(path, baseDir)
+	trimmedPath = strings.TrimPrefix(trimmedPath, "/")
+	elems := strings.Split(trimmedPath, "/")
 	if len(elems) > 4 {
 		err = fmt.Errorf("invalid path %s", path)
 		return

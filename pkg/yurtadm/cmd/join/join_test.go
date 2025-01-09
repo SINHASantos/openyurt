@@ -51,6 +51,7 @@ func TestNewJoinOptions(t *testing.T) {
 				criSocket:                yurtconstants.DefaultDockerCRISocket,
 				pauseImage:               yurtconstants.PauseImagePath,
 				yurthubImage:             fmt.Sprintf("%s/%s:%s", yurtconstants.DefaultOpenYurtImageRegistry, yurtconstants.Yurthub, yurtconstants.DefaultOpenYurtVersion),
+				namespace:                yurtconstants.YurthubNamespace,
 				caCertHashes:             make([]string, 0),
 				unsafeSkipCAVerification: false,
 				ignorePreflightErrors:    make([]string, 0),
@@ -62,6 +63,7 @@ func TestNewJoinOptions(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -114,6 +116,7 @@ func TestNewCmdJoin(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -145,6 +148,7 @@ func TestAddJoinConfigFlags(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -184,6 +188,7 @@ func TestNewJoinerWithJoinData(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -213,6 +218,7 @@ func TestRun(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -229,6 +235,10 @@ func TestRun(t *testing.T) {
 
 func TestNewJoinData(t *testing.T) {
 	jo := newJoinOptions()
+	jo2 := newJoinOptions()
+	jo2.token = "v22u0b.17490yh3xp8azpr0"
+	jo2.unsafeSkipCAVerification = true
+	jo2.nodePoolName = "nodePool2"
 
 	tests := []struct {
 		name   string
@@ -238,13 +248,20 @@ func TestNewJoinData(t *testing.T) {
 	}{
 		{
 			"normal",
-			[]string{},
+			[]string{"localhost:8080"},
 			jo,
+			nil,
+		},
+		{
+			"norma2",
+			[]string{"localhost:8080"},
+			jo2,
 			nil,
 		},
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -275,6 +292,7 @@ func TestServerAddr(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -305,6 +323,7 @@ func TestJoinToken(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -335,41 +354,12 @@ func TestPauseImage(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
 			{
 				get := jd.PauseImage()
-				if !reflect.DeepEqual(tt.expect, get) {
-					t.Fatalf("\t%s\texpect %v, but get %v", failed, tt.expect, get)
-				}
-				t.Logf("\t%s\texpect %v, get %v", succeed, tt.expect, get)
-			}
-		})
-	}
-}
-
-func TestYurtHubImage(t *testing.T) {
-	jd := joinData{
-		yurthubImage: "192.168.1.1",
-	}
-
-	tests := []struct {
-		name   string
-		expect string
-	}{
-		{
-			"normal",
-			"192.168.1.1",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			t.Logf("\tTestCase: %s", tt.name)
-			{
-				get := jd.YurtHubImage()
 				if !reflect.DeepEqual(tt.expect, get) {
 					t.Fatalf("\t%s\texpect %v, but get %v", failed, tt.expect, get)
 				}
@@ -395,6 +385,7 @@ func TestYurtHubServer(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -425,6 +416,7 @@ func TestKubernetesVersion(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -455,6 +447,7 @@ func TestTLSBootstrapCfg(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -486,6 +479,7 @@ func TestBootstrapClient(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -518,6 +512,7 @@ func TestNodeRegistration(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -534,20 +529,21 @@ func TestNodeRegistration(t *testing.T) {
 
 func TestIgnorePreflightErrors(t *testing.T) {
 	jd := joinData{
-		ignorePreflightErrors: sets.String{},
+		ignorePreflightErrors: sets.Set[string]{},
 	}
 
 	tests := []struct {
 		name   string
-		expect sets.String
+		expect sets.Set[string]
 	}{
 		{
 			"normal",
-			sets.String{},
+			sets.Set[string]{},
 		},
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -578,6 +574,7 @@ func TestCaCertHashes(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -608,6 +605,7 @@ func TestNodeLabels(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
@@ -638,11 +636,74 @@ func TestKubernetesResourceServer(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			t.Logf("\tTestCase: %s", tt.name)
 			{
 				get := jd.KubernetesResourceServer()
+				if !reflect.DeepEqual(tt.expect, get) {
+					t.Fatalf("\t%s\texpect %v, but get %v", failed, tt.expect, get)
+				}
+				t.Logf("\t%s\texpect %v, get %v", succeed, tt.expect, get)
+			}
+		})
+	}
+}
+
+func TestStaticPodTemplateList(t *testing.T) {
+	jd := joinData{
+		staticPodTemplateList: []string{},
+	}
+
+	tests := []struct {
+		name   string
+		expect []string
+	}{
+		{
+			"normal",
+			[]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			t.Logf("\tTestCase: %s", tt.name)
+			{
+				get := jd.StaticPodTemplateList()
+				if !reflect.DeepEqual(tt.expect, get) {
+					t.Fatalf("\t%s\texpect %v, but get %v", failed, tt.expect, get)
+				}
+				t.Logf("\t%s\texpect %v, get %v", succeed, tt.expect, get)
+			}
+		})
+	}
+}
+
+func TestStaticPodManifestList(t *testing.T) {
+	jd := joinData{
+		staticPodManifestList: []string{},
+	}
+
+	tests := []struct {
+		name   string
+		expect []string
+	}{
+		{
+			"normal",
+			[]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			t.Logf("\tTestCase: %s", tt.name)
+			{
+				get := jd.StaticPodManifestList()
 				if !reflect.DeepEqual(tt.expect, get) {
 					t.Fatalf("\t%s\texpect %v, but get %v", failed, tt.expect, get)
 				}

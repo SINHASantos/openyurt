@@ -19,8 +19,10 @@ package proxy
 import (
 	"bytes"
 	"errors"
-	"io/ioutil"
+	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	v1 "k8s.io/api/authorization/v1"
@@ -36,29 +38,38 @@ import (
 	"github.com/openyurtio/openyurt/cmd/yurthub/app/config"
 	"github.com/openyurtio/openyurt/pkg/yurthub/cachemanager"
 	"github.com/openyurtio/openyurt/pkg/yurthub/healthchecker"
-	"github.com/openyurtio/openyurt/pkg/yurthub/poolcoordinator"
-	coordinatorconstants "github.com/openyurtio/openyurt/pkg/yurthub/poolcoordinator/constants"
+	hubrest "github.com/openyurtio/openyurt/pkg/yurthub/kubernetes/rest"
+	"github.com/openyurtio/openyurt/pkg/yurthub/proxy/autonomy"
 	"github.com/openyurtio/openyurt/pkg/yurthub/proxy/local"
+	"github.com/openyurtio/openyurt/pkg/yurthub/proxy/multiplexer"
 	"github.com/openyurtio/openyurt/pkg/yurthub/proxy/pool"
 	"github.com/openyurtio/openyurt/pkg/yurthub/proxy/remote"
 	"github.com/openyurtio/openyurt/pkg/yurthub/proxy/util"
 	"github.com/openyurtio/openyurt/pkg/yurthub/tenant"
 	"github.com/openyurtio/openyurt/pkg/yurthub/transport"
 	hubutil "github.com/openyurtio/openyurt/pkg/yurthub/util"
+	"github.com/openyurtio/openyurt/pkg/yurthub/yurtcoordinator"
+	coordinatorconstants "github.com/openyurtio/openyurt/pkg/yurthub/yurtcoordinator/constants"
 )
 
+const multiplexerProxyPostHookName = "multiplexerProxy"
+
 type yurtReverseProxy struct {
-	resolver                      apirequest.RequestInfoResolver
-	loadBalancer                  remote.LoadBalancer
-	cloudHealthChecker            healthchecker.MultipleBackendsHealthChecker
-	coordinatorHealtCheckerGetter func() healthchecker.HealthChecker
-	localProxy                    http.Handler
-	poolProxy                     http.Handler
-	maxRequestsInFlight           int
-	tenantMgr                     tenant.Interface
-	isCoordinatorReady            func() bool
-	workingMode                   hubutil.WorkingMode
-	enablePoolCoordinator         bool
+	resolver                       apirequest.RequestInfoResolver
+	loadBalancer                   remote.LoadBalancer
+	cloudHealthChecker             healthchecker.MultipleBackendsHealthChecker
+	coordinatorHealthCheckerGetter func() healthchecker.HealthChecker
+	localProxy                     http.Handler
+	poolProxy                      http.Handler
+	autonomyProxy                  http.Handler
+	maxRequestsInFlight            int
+	tenantMgr                      tenant.Interface
+	isCoordinatorReady             func() bool
+	workingMode                    hubutil.WorkingMode
+	enableYurtCoordinator          bool
+	multiplexerProxy               http.Handler
+	multiplexerResources           []schema.GroupVersionResource
+	nodeName                       string
 }
 
 // NewYurtReverseProxyHandler creates a http handler for proxying
@@ -66,12 +77,14 @@ type yurtReverseProxy struct {
 func NewYurtReverseProxyHandler(
 	yurtHubCfg *config.YurtHubConfiguration,
 	localCacheMgr cachemanager.CacheManager,
+	restConfigMgr *hubrest.RestConfigManager,
 	transportMgr transport.Interface,
 	cloudHealthChecker healthchecker.MultipleBackendsHealthChecker,
 	tenantMgr tenant.Interface,
-	coordinatorGetter func() poolcoordinator.Coordinator,
+	coordinatorGetter func() yurtcoordinator.Coordinator,
 	coordinatorTransportMgrGetter func() transport.Interface,
 	coordinatorHealthCheckerGetter func() healthchecker.HealthChecker,
+	coordinatorServerURLGetter func() *url.URL,
 	stopCh <-chan struct{}) (http.Handler, error) {
 	cfg := &server.Config{
 		LegacyAPIGroupPrefixes: sets.NewString(server.DefaultLegacyAPIPrefix),
@@ -85,14 +98,14 @@ func NewYurtReverseProxyHandler(
 		transportMgr,
 		coordinatorGetter,
 		cloudHealthChecker,
-		yurtHubCfg.FilterManager,
+		yurtHubCfg.FilterFinder,
 		yurtHubCfg.WorkingMode,
 		stopCh)
 	if err != nil {
 		return nil, err
 	}
 
-	var localProxy, poolProxy http.Handler
+	var localProxy, poolProxy, autonomyProxy http.Handler
 	isCoordinatorHealthy := func() bool {
 		coordinator := coordinatorGetter()
 		if coordinator == nil {
@@ -120,12 +133,17 @@ func NewYurtReverseProxyHandler(
 		)
 		localProxy = local.WithFakeTokenInject(localProxy, yurtHubCfg.SerializerManager)
 
+		autonomyProxy = autonomy.NewAutonomyProxy(
+			restConfigMgr,
+			localCacheMgr,
+		)
+
 		if yurtHubCfg.EnableCoordinator {
-			poolProxy, err = pool.NewPoolCoordinatorProxy(
-				yurtHubCfg.CoordinatorServerURL,
+			poolProxy, err = pool.NewYurtCoordinatorProxy(
 				localCacheMgr,
 				coordinatorTransportMgrGetter,
-				yurtHubCfg.FilterManager,
+				coordinatorServerURLGetter,
+				yurtHubCfg.FilterFinder,
 				isCoordinatorReady,
 				stopCh)
 			if err != nil {
@@ -135,17 +153,33 @@ func NewYurtReverseProxyHandler(
 	}
 
 	yurtProxy := &yurtReverseProxy{
-		resolver:                      resolver,
-		loadBalancer:                  lb,
-		cloudHealthChecker:            cloudHealthChecker,
-		coordinatorHealtCheckerGetter: coordinatorHealthCheckerGetter,
-		localProxy:                    localProxy,
-		poolProxy:                     poolProxy,
-		maxRequestsInFlight:           yurtHubCfg.MaxRequestInFlight,
-		isCoordinatorReady:            isCoordinatorReady,
-		enablePoolCoordinator:         yurtHubCfg.EnableCoordinator,
-		tenantMgr:                     tenantMgr,
-		workingMode:                   yurtHubCfg.WorkingMode,
+		resolver:                       resolver,
+		loadBalancer:                   lb,
+		cloudHealthChecker:             cloudHealthChecker,
+		coordinatorHealthCheckerGetter: coordinatorHealthCheckerGetter,
+		localProxy:                     localProxy,
+		poolProxy:                      poolProxy,
+		autonomyProxy:                  autonomyProxy,
+		maxRequestsInFlight:            yurtHubCfg.MaxRequestInFlight,
+		isCoordinatorReady:             isCoordinatorReady,
+		enableYurtCoordinator:          yurtHubCfg.EnableCoordinator,
+		tenantMgr:                      tenantMgr,
+		workingMode:                    yurtHubCfg.WorkingMode,
+		multiplexerResources:           yurtHubCfg.MultiplexerResources,
+		nodeName:                       yurtHubCfg.NodeName,
+	}
+
+	if yurtHubCfg.PostStartHooks == nil {
+		yurtHubCfg.PostStartHooks = make(map[string]func() error)
+	}
+	yurtHubCfg.PostStartHooks[multiplexerProxyPostHookName] = func() error {
+		if yurtProxy.multiplexerProxy, err = multiplexer.NewMultiplexerProxy(yurtHubCfg.FilterFinder,
+			yurtHubCfg.RequestMultiplexerManager,
+			yurtHubCfg.MultiplexerResources,
+			stopCh); err != nil {
+			return fmt.Errorf("failed to new default share proxy, error: %v", err)
+		}
+		return nil
 	}
 
 	return yurtProxy.buildHandlerChain(yurtProxy), nil
@@ -163,9 +197,10 @@ func (p *yurtReverseProxy) buildHandlerChain(handler http.Handler) http.Handler 
 	}
 	handler = util.WithRequestTraceFull(handler)
 	handler = util.WithMaxInFlightLimit(handler, p.maxRequestsInFlight)
-	handler = util.WithRequestClientComponent(handler)
+	handler = util.WithRequestClientComponent(handler, p.workingMode)
+	handler = util.WithPartialObjectMetadataRequest(handler)
 
-	if p.enablePoolCoordinator {
+	if p.enableYurtCoordinator {
 		handler = util.WithIfPoolScopedResource(handler)
 	}
 
@@ -189,14 +224,24 @@ func (p *yurtReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) 
 	switch {
 	case util.IsKubeletLeaseReq(req):
 		p.handleKubeletLease(rw, req)
+	case util.IsKubeletGetNodeReq(req):
+		if p.autonomyProxy != nil {
+			p.autonomyProxy.ServeHTTP(rw, req)
+		} else {
+			p.loadBalancer.ServeHTTP(rw, req)
+		}
 	case util.IsEventCreateRequest(req):
 		p.eventHandler(rw, req)
-	case util.IsPoolScopedResouceListWatchRequest(req):
-		p.poolScopedResouceHandler(rw, req)
+	case util.IsPoolScopedResourceListWatchRequest(req):
+		p.poolScopedResourceHandler(rw, req)
 	case util.IsSubjectAccessReviewCreateGetRequest(req):
 		p.subjectAccessReviewHandler(rw, req)
+	case util.IsMultiplexerRequest(req, p.multiplexerResources, p.nodeName):
+		if p.multiplexerProxy != nil {
+			p.multiplexerProxy.ServeHTTP(rw, req)
+		}
 	default:
-		// For resource request that do not need to be handled by pool-coordinator,
+		// For resource request that do not need to be handled by yurt-coordinator,
 		// handling the request with cloud apiserver or local cache.
 		if p.cloudHealthChecker.IsHealthy() {
 			p.loadBalancer.ServeHTTP(rw, req)
@@ -208,9 +253,9 @@ func (p *yurtReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) 
 
 func (p *yurtReverseProxy) handleKubeletLease(rw http.ResponseWriter, req *http.Request) {
 	p.cloudHealthChecker.RenewKubeletLeaseTime()
-	coordinatorHealtChecker := p.coordinatorHealtCheckerGetter()
-	if coordinatorHealtChecker != nil {
-		coordinatorHealtChecker.RenewKubeletLeaseTime()
+	coordinatorHealthChecker := p.coordinatorHealthCheckerGetter()
+	if coordinatorHealthChecker != nil {
+		coordinatorHealthChecker.RenewKubeletLeaseTime()
 	}
 
 	if p.localProxy != nil {
@@ -221,7 +266,7 @@ func (p *yurtReverseProxy) handleKubeletLease(rw http.ResponseWriter, req *http.
 func (p *yurtReverseProxy) eventHandler(rw http.ResponseWriter, req *http.Request) {
 	if p.cloudHealthChecker.IsHealthy() {
 		p.loadBalancer.ServeHTTP(rw, req)
-		// TODO: We should also consider create the event in pool-coordinator when the cloud is healthy.
+		// TODO: We should also consider create the event in yurt-coordinator when the cloud is healthy.
 	} else if p.isCoordinatorReady() && p.poolProxy != nil {
 		p.poolProxy.ServeHTTP(rw, req)
 	} else {
@@ -229,7 +274,7 @@ func (p *yurtReverseProxy) eventHandler(rw http.ResponseWriter, req *http.Reques
 	}
 }
 
-func (p *yurtReverseProxy) poolScopedResouceHandler(rw http.ResponseWriter, req *http.Request) {
+func (p *yurtReverseProxy) poolScopedResourceHandler(rw http.ResponseWriter, req *http.Request) {
 	agent, ok := hubutil.ClientComponentFrom(req.Context())
 	if ok && agent == coordinatorconstants.DefaultPoolScopedUserAgent {
 		// list/watch request from leader-yurthub
@@ -249,16 +294,16 @@ func (p *yurtReverseProxy) poolScopedResouceHandler(rw http.ResponseWriter, req 
 }
 
 func (p *yurtReverseProxy) subjectAccessReviewHandler(rw http.ResponseWriter, req *http.Request) {
-	if isSubjectAccessReviewFromPoolCoordinator(req) {
-		// check if the logs/exec request is from APIServer or PoolCoordinator.
-		// We should avoid sending SubjectAccessReview to Pool-Coordinator if the logs/exec requests
+	if isSubjectAccessReviewFromYurtCoordinator(req) {
+		// check if the logs/exec request is from APIServer or YurtCoordinator.
+		// We should avoid sending SubjectAccessReview to Yurt-Coordinator if the logs/exec requests
 		// come from APIServer, which may fail for RBAC differences, vise versa.
 		if p.isCoordinatorReady() {
 			p.poolProxy.ServeHTTP(rw, req)
 		} else {
-			err := errors.New("request is from pool-coordinator but it's currently not healthy")
+			err := errors.New("request is from yurt-coordinator but it's currently not healthy")
 			klog.Errorf("could not handle SubjectAccessReview req %s, %v", hubutil.ReqString(req), err)
-			util.Err(err, rw, req)
+			hubutil.Err(err, rw, req)
 		}
 	} else {
 		if p.cloudHealthChecker.IsHealthy() {
@@ -266,18 +311,18 @@ func (p *yurtReverseProxy) subjectAccessReviewHandler(rw http.ResponseWriter, re
 		} else {
 			err := errors.New("request is from cloud APIServer but it's currently not healthy")
 			klog.Errorf("could not handle SubjectAccessReview req %s, %v", hubutil.ReqString(req), err)
-			util.Err(err, rw, req)
+			hubutil.Err(err, rw, req)
 		}
 	}
 }
 
-func isSubjectAccessReviewFromPoolCoordinator(req *http.Request) bool {
+func isSubjectAccessReviewFromYurtCoordinator(req *http.Request) bool {
 	var buf bytes.Buffer
 	if n, err := buf.ReadFrom(req.Body); err != nil || n == 0 {
-		klog.Errorf("failed to read SubjectAccessReview from request %s, read %d bytes, %v", hubutil.ReqString(req), n, err)
+		klog.Errorf("could not read SubjectAccessReview from request %s, read %d bytes, %v", hubutil.ReqString(req), n, err)
 		return false
 	}
-	req.Body = ioutil.NopCloser(&buf)
+	req.Body = io.NopCloser(&buf)
 
 	subjectAccessReviewGVK := schema.GroupVersionKind{
 		Group:   v1.SchemeGroupVersion.Group,
@@ -287,7 +332,7 @@ func isSubjectAccessReviewFromPoolCoordinator(req *http.Request) bool {
 	obj := &v1.SubjectAccessReview{}
 	got, gvk, err := decoder.Decode(buf.Bytes(), nil, obj)
 	if err != nil {
-		klog.Errorf("failed to decode SubjectAccessReview in request %s, %v", hubutil.ReqString(req), err)
+		klog.Errorf("could not decode SubjectAccessReview in request %s, %v", hubutil.ReqString(req), err)
 		return false
 	}
 	if (*gvk) != subjectAccessReviewGVK {
@@ -295,14 +340,14 @@ func isSubjectAccessReviewFromPoolCoordinator(req *http.Request) bool {
 		return false
 	}
 
-	sav := got.(*v1.SubjectAccessReview)
-	for _, g := range sav.Spec.Groups {
-		if g == "openyurt:pool-coordinator" {
+	sar := got.(*v1.SubjectAccessReview)
+	for _, g := range sar.Spec.Groups {
+		if g == "openyurt:yurt-coordinator" {
 			return true
 		}
 	}
 
-	klog.V(4).Infof("SubjectAccessReview in request %s is not for pool-coordinator, whose group: %s, user: %s",
-		hubutil.ReqString(req), strings.Join(sav.Spec.Groups, ";"), sav.Spec.User)
+	klog.V(4).Infof("SubjectAccessReview in request %s is not for yurt-coordinator, whose group: %s, user: %s",
+		hubutil.ReqString(req), strings.Join(sar.Spec.Groups, ";"), sar.Spec.User)
 	return false
 }

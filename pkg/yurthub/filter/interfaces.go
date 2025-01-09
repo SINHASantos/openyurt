@@ -25,6 +25,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
+type NodesInPoolGetter func(poolName string) ([]string, error)
+
 type Initializer interface {
 	Initialize(filter ObjectFilter) error
 }
@@ -45,17 +47,21 @@ type ResponseFilter interface {
 }
 
 // ObjectFilter is used for filtering runtime object.
-// runtime object includes List object(like ServiceList) that has multiple items and
-// Standalone object(like Service).
+// runtime object is only a standalone object(like Service).
 // Every Filter need to implement ObjectFilter interface.
 type ObjectFilter interface {
 	Name() string
 	// SupportedResourceAndVerbs is used to specify which resource and request verb is supported by the filter.
 	// Because each filter can make sure what requests with resource and verb can be handled.
-	SupportedResourceAndVerbs() map[string]sets.String
+	SupportedResourceAndVerbs() map[string]sets.Set[string]
 	// Filter is used for filtering runtime object
 	// all filter logic should be located in it.
 	Filter(obj runtime.Object, stopCh <-chan struct{}) runtime.Object
+}
+
+type FilterFinder interface {
+	FindResponseFilter(req *http.Request) (ResponseFilter, bool)
+	FindObjectFilter(req *http.Request) (ObjectFilter, bool)
 }
 
 type NodeGetter func(name string) (*v1.Node, error)

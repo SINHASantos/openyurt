@@ -17,18 +17,17 @@ limitations under the License.
 package phases
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"k8s.io/klog/v2"
 
-	"github.com/openyurtio/openyurt/pkg/util/templates"
 	"github.com/openyurtio/openyurt/pkg/yurtadm/cmd/join/joindata"
 	"github.com/openyurtio/openyurt/pkg/yurtadm/constants"
+	"github.com/openyurtio/openyurt/pkg/yurtadm/util/edgenode"
 	yurtadmutil "github.com/openyurtio/openyurt/pkg/yurtadm/util/kubernetes"
 	"github.com/openyurtio/openyurt/pkg/yurtadm/util/system"
+	"github.com/openyurtio/openyurt/pkg/yurtadm/util/yurthub"
 )
 
 // RunPrepare executes the node initialization process.
@@ -60,64 +59,34 @@ func RunPrepare(data joindata.YurtJoinData) error {
 	if err := yurtadmutil.SetKubeletService(); err != nil {
 		return err
 	}
+	if err := yurtadmutil.EnableKubeletService(); err != nil {
+		return err
+	}
 	if err := yurtadmutil.SetKubeletUnitConfig(); err != nil {
 		return err
 	}
 	if err := yurtadmutil.SetKubeletConfigForNode(); err != nil {
 		return err
 	}
-	if err := addYurthubStaticYaml(data, filepath.Join(constants.KubeletConfigureDir, constants.ManifestsSubDirName)); err != nil {
+	if err := yurthub.SetHubBootstrapConfig(data.ServerAddr(), data.JoinToken(), data.CaCertHashes()); err != nil {
 		return err
+	}
+	if err := yurthub.AddYurthubStaticYaml(data, constants.StaticPodPath); err != nil {
+		return err
+	}
+	if len(data.StaticPodTemplateList()) != 0 {
+		// deploy user specified static pods
+		if err := edgenode.DeployStaticYaml(data.StaticPodManifestList(), data.StaticPodTemplateList(), constants.StaticPodPath); err != nil {
+			return err
+		}
 	}
 	if err := yurtadmutil.SetDiscoveryConfig(data); err != nil {
 		return err
 	}
-	if err := yurtadmutil.SetKubeadmJoinConfig(data); err != nil {
-		return err
-	}
-	return nil
-}
-
-// addYurthubStaticYaml generate YurtHub static yaml for worker node.
-func addYurthubStaticYaml(data joindata.YurtJoinData, podManifestPath string) error {
-	klog.Info("[join-node] Adding edge hub static yaml")
-	if _, err := os.Stat(podManifestPath); err != nil {
-		if os.IsNotExist(err) {
-			err = os.MkdirAll(podManifestPath, os.ModePerm)
-			if err != nil {
-				return err
-			}
-		} else {
-			klog.Errorf("Describe dir %s fail: %v", podManifestPath, err)
+	if data.CfgPath() == "" {
+		if err := yurtadmutil.SetKubeadmJoinConfig(data); err != nil {
 			return err
 		}
 	}
-
-	// There can be multiple master IP addresses
-	serverAddrs := strings.Split(data.ServerAddr(), ",")
-	for i := 0; i < len(serverAddrs); i++ {
-		serverAddrs[i] = fmt.Sprintf("https://%s", serverAddrs[i])
-	}
-
-	kubernetesServerAddrs := strings.Join(serverAddrs, ",")
-
-	ctx := map[string]string{
-		"kubernetesServerAddr": kubernetesServerAddrs,
-		"image":                data.YurtHubImage(),
-		"joinToken":            data.JoinToken(),
-		"workingMode":          data.NodeRegistration().WorkingMode,
-		"organizations":        data.NodeRegistration().Organizations,
-		"yurthubServerAddr":    data.YurtHubServer(),
-	}
-
-	yurthubTemplate, err := templates.SubsituteTemplate(constants.YurthubTemplate, ctx)
-	if err != nil {
-		return err
-	}
-
-	if err := os.WriteFile(filepath.Join(podManifestPath, constants.YurthubStaticPodFileName), []byte(yurthubTemplate), 0600); err != nil {
-		return err
-	}
-	klog.Info("[join-node] Add hub agent static yaml is ok")
 	return nil
 }

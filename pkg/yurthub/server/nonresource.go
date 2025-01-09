@@ -25,18 +25,21 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/handlers/responsewriters"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 
 	"github.com/openyurtio/openyurt/cmd/yurthub/app/config"
+	yurtutil "github.com/openyurtio/openyurt/pkg/util"
 	"github.com/openyurtio/openyurt/pkg/yurthub/cachemanager"
 	"github.com/openyurtio/openyurt/pkg/yurthub/kubernetes/rest"
 	"github.com/openyurtio/openyurt/pkg/yurthub/storage"
 )
 
 var nonResourceReqPaths = map[string]storage.ClusterInfoType{
-	"/version":                       storage.Version,
-	"/apis/discovery.k8s.io/v1":      storage.APIResourcesInfo,
-	"/apis/discovery.k8s.io/v1beta1": storage.APIResourcesInfo,
+	"/version":                         storage.Version,
+	"/apis/discovery.k8s.io/v1":        storage.APIResourcesInfo,
+	"/apis/discovery.k8s.io/v1beta1":   storage.APIResourcesInfo,
+	"/apis/raven.openyurt.io/v1alpha1": storage.APIResourcesInfo,
+	"/apis/raven.openyurt.io/v1beta1":  storage.APIResourcesInfo,
 }
 
 type NonResourceHandler func(kubeClient *kubernetes.Clientset, sw cachemanager.StorageWrapper, path string) http.Handler
@@ -56,7 +59,7 @@ func wrapNonResourceHandler(proxyHandler http.Handler, config *config.YurtHubCon
 
 func localCacheHandler(handler NonResourceHandler, restMgr *rest.RestConfigManager, sw cachemanager.StorageWrapper, path string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key := storage.ClusterInfoKey{
+		key := &storage.ClusterInfoKey{
 			ClusterInfoType: nonResourceReqPaths[path],
 			UrlPath:         path,
 		}
@@ -88,13 +91,13 @@ func localCacheHandler(handler NonResourceHandler, restMgr *rest.RestConfigManag
 
 func nonResourceHandler(kubeClient *kubernetes.Clientset, sw cachemanager.StorageWrapper, path string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key := storage.ClusterInfoKey{
+		key := &storage.ClusterInfoKey{
 			ClusterInfoType: nonResourceReqPaths[path],
 			UrlPath:         path,
 		}
 
 		result := kubeClient.RESTClient().Get().AbsPath(path).Do(context.TODO())
-		code := pointer.IntPtr(0)
+		code := ptr.To(0)
 		result.StatusCode(code)
 		if result.Error() != nil {
 			err := result.Error()
@@ -110,7 +113,7 @@ func nonResourceHandler(kubeClient *kubernetes.Clientset, sw cachemanager.Storag
 }
 
 func writeErrResponse(path string, err error, w http.ResponseWriter) {
-	klog.Errorf("failed to handle %s non resource request, %v", path, err)
+	klog.Errorf("could not handle %s non resource request, %v", path, err)
 	status := responsewriters.ErrorToAPIStatus(err)
 	output, err := json.Marshal(status)
 	if err != nil {
@@ -121,6 +124,6 @@ func writeErrResponse(path string, err error, w http.ResponseWriter) {
 }
 
 func writeRawJSON(output []byte, w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(yurtutil.HttpHeaderContentType, yurtutil.HttpContentTypeJson)
 	w.Write(output)
 }

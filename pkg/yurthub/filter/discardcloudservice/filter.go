@@ -25,6 +25,18 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/openyurtio/openyurt/pkg/yurthub/filter"
+	"github.com/openyurtio/openyurt/pkg/yurthub/filter/base"
+)
+
+const (
+	// FilterName filter is used to discard cloud service(like loadBalancer service)
+	// on kube-proxy list/watch service request from edge nodes.
+	FilterName = "discardcloudservice"
+
+	// DiscardServiceAnnotation is annotation used by LB service.
+	// If end users want to discard specified LB service at the edge side,
+	// End users should add annotation["svc.openyurt.io/discard"]="true" for LB service.
+	DiscardServiceAnnotation = "svc.openyurt.io/discard"
 )
 
 var (
@@ -34,36 +46,30 @@ var (
 )
 
 // Register registers a filter
-func Register(filters *filter.Filters) {
-	filters.Register(filter.DiscardCloudServiceFilterName, func() (filter.ObjectFilter, error) {
-		return &discardCloudServiceFilter{}, nil
+func Register(filters *base.Filters) {
+	filters.Register(FilterName, func() (filter.ObjectFilter, error) {
+		return NewDiscardCloudServiceFilter()
 	})
 }
 
 type discardCloudServiceFilter struct{}
 
-func (sf *discardCloudServiceFilter) Name() string {
-	return filter.DiscardCloudServiceFilterName
+func NewDiscardCloudServiceFilter() (filter.ObjectFilter, error) {
+	return &discardCloudServiceFilter{}, nil
 }
 
-func (sf *discardCloudServiceFilter) SupportedResourceAndVerbs() map[string]sets.String {
-	return map[string]sets.String{
-		"services": sets.NewString("list", "watch"),
+func (sf *discardCloudServiceFilter) Name() string {
+	return FilterName
+}
+
+func (sf *discardCloudServiceFilter) SupportedResourceAndVerbs() map[string]sets.Set[string] {
+	return map[string]sets.Set[string]{
+		"services": sets.New("list", "watch"),
 	}
 }
 
 func (sf *discardCloudServiceFilter) Filter(obj runtime.Object, _ <-chan struct{}) runtime.Object {
 	switch v := obj.(type) {
-	case *v1.ServiceList:
-		var svcNew []v1.Service
-		for i := range v.Items {
-			svc := discardCloudService(&v.Items[i])
-			if svc != nil {
-				svcNew = append(svcNew, *svc)
-			}
-		}
-		v.Items = svcNew
-		return v
 	case *v1.Service:
 		return discardCloudService(v)
 	default:
@@ -75,7 +81,7 @@ func discardCloudService(svc *v1.Service) *v1.Service {
 	nsName := fmt.Sprintf("%s/%s", svc.Namespace, svc.Name)
 	// remove cloud LoadBalancer service
 	if svc.Spec.Type == v1.ServiceTypeLoadBalancer {
-		if svc.Annotations[filter.SkipDiscardServiceAnnotation] != "true" {
+		if svc.Annotations[DiscardServiceAnnotation] == "true" {
 			klog.V(2).Infof("load balancer service(%s) is discarded in StreamResponseFilter of discardCloudServiceFilterHandler", nsName)
 			return nil
 		}

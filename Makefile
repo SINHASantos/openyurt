@@ -12,29 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-KUBERNETESVERSION ?=v1.22
+KUBERNETESVERSION ?=v1.30
+GOLANGCILINT_VERSION ?= v1.55.2
+GLOBAL_GOLANGCILINT := $(shell which golangci-lint)
+GOBIN := $(shell go env GOPATH)/bin
+GOBIN_GOLANGCILINT := $(shell which $(GOBIN)/golangci-lint)
 TARGET_PLATFORMS ?= linux/amd64
+BRANCH_TAG = $(shell git describe --abbrev=0 --tags)
 IMAGE_REPO ?= openyurt
-IMAGE_TAG ?= $(shell git describe --abbrev=0 --tags)
+IMAGE_TAG ?= $(BRANCH_TAG)
 GIT_COMMIT = $(shell git rev-parse HEAD)
 ENABLE_AUTONOMY_TESTS ?=true
-CRD_OPTIONS ?= "crd:crdVersions=v1"
 BUILD_KUSTOMIZE ?= _output/manifest
+GOPROXY ?= $(shell go env GOPROXY)
 
-ifeq ($(shell git tag --points-at ${GIT_COMMIT}),)
-GIT_VERSION=$(IMAGE_TAG)-$(shell echo ${GIT_COMMIT} | cut -c 1-7)
-else
-GIT_VERSION=$(IMAGE_TAG)
+# Dynamic detection of operating system and architecture
+OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+ARCH := $(shell uname -m)
+ifeq ($(ARCH),x86_64)
+	ARCH := amd64
 endif
 
-ifneq ($(IMAGE_TAG), $(shell git describe --abbrev=0 --tags))
-GIT_VERSION=$(IMAGE_TAG)
+ifeq ($(IMAGE_TAG),$(BRANCH_TAG))
+	ifeq ($(shell git tag --points-at ${GIT_COMMIT}),)
+		IMAGE_TAG :=$(IMAGE_TAG)-$(shell echo ${GIT_COMMIT} | cut -c 1-7)
+	endif
 endif
+
+GIT_VERSION := $(IMAGE_TAG)
 
 DOCKER_BUILD_ARGS = --build-arg GIT_VERSION=${GIT_VERSION}
 
 ifeq (${REGION}, cn)
-DOCKER_BUILD_ARGS += --build-arg GOPROXY=https://goproxy.cn --build-arg MIRROR_REPO=mirrors.aliyun.com
+GOPROXY=https://goproxy.cn
+DOCKER_BUILD_ARGS += --build-arg GOPROXY=$(GOPROXY) --build-arg MIRROR_REPO=mirrors.aliyun.com
 endif
 
 ifneq (${http_proxy},)
@@ -45,35 +56,59 @@ ifneq (${https_proxy},)
 DOCKER_BUILD_ARGS += --build-arg https_proxy='${https_proxy}'
 endif
 
-.PHONY: clean all build test
+LOCALBIN ?= $(shell pwd)/bin
+$(LOCALBIN):
+	mkdir -p $(LOCALBIN)
+
+KUSTOMIZE_VERSION ?= v4.5.7
+## Tool Binaries
+KUSTOMIZE ?= $(LOCALBIN)/kustomize
+
+KUBECTL_VERSION ?= v1.30.1
+KUBECTL ?= $(LOCALBIN)/kubectl
+
+YQ_VERSION := 4.13.2
+YQ := $(shell command -v $(LOCALBIN)/yq 2> /dev/null)
+
+HELM_VERSION ?= v3.9.3
+HELM ?= $(LOCALBIN)/helm
+HELM_BINARY_URL := https://get.helm.sh/helm-$(HELM_VERSION)-$(OS)-$(ARCH).tar.gz
+
+.PHONY: clean all build test print-version
 
 all: test build
 
+print-version:
+	@echo "GIT_VERSION is $(GIT_VERSION), IMAGE_TAG is $(IMAGE_TAG)"
+
 # Build binaries in the host environment
 build:
-	bash hack/make-rules/build.sh $(WHAT)
+	GOPROXY=$(GOPROXY) GIT_VERSION=$(GIT_VERSION) bash hack/make-rules/build.sh $(WHAT)
 
 # Run test
 test:
-	go test -v -short ./pkg/... ./cmd/... -coverprofile cover.out
-	go test -v  -coverpkg=./pkg/yurttunnel/...  -coverprofile=yurttunnel-cover.out ./test/integration/yurttunnel_test.go
+	go test -v ./pkg/... ./cmd/... -coverprofile cover.out
+	go test -v -coverpkg=./pkg/yurttunnel/...  -coverprofile=yurttunnel-cover.out ./test/integration/yurttunnel_test.go
 
 clean:
 	-rm -Rf _output
 
 # verify will verify the code.
-verify: verify-mod verify-license
+verify: verify-mod verify-license verify_manifests
+
+verify_manifests:
+	hack/make-rules/verify_manifests.sh
 
 # verify-license will check if license has been added to files. 
 verify-license:
 	hack/make-rules/check_license.sh
 
-# verify-mod will check if go.mod has beed tidied.
+# verify-mod will check if go.mod has been tidied.
 verify-mod:
 	hack/make-rules/verify_mod.sh
 
 # Start up OpenYurt cluster on local machine based on a Kind cluster
-local-up-openyurt:
+local-up-openyurt: install-helm
 	KUBERNETESVERSION=${KUBERNETESVERSION} YURT_VERSION=$(GIT_VERSION) bash hack/make-rules/local-up-openyurt.sh
 
 # Build all OpenYurt components images and then start up OpenYurt cluster on local machine based on a Kind cluster
@@ -90,15 +125,34 @@ docker-build-and-up-openyurt: docker-build
 e2e-tests:
 	ENABLE_AUTONOMY_TESTS=${ENABLE_AUTONOMY_TESTS} TARGET_PLATFORMS=${TARGET_PLATFORMS} hack/make-rules/run-e2e-tests.sh
 
+
+install-helm: $(LOCALBIN)
+	@echo "Checking Helm installation..."
+	@HELM_CURRENT_VERSION=$$($(HELM) version --template="{{ .Version }}" 2>/dev/null || echo ""); \
+	if [ "$$HELM_CURRENT_VERSION" != "$(HELM_VERSION)" ]; then \
+		echo "Installing or upgrading Helm to version $(HELM_VERSION) into $(LOCALBIN)"; \
+		curl -fsSL -o helm.tar.gz "$(HELM_BINARY_URL)"; \
+		tar -xzf helm.tar.gz; \
+		mv $(OS)-$(ARCH)/helm $(HELM); \
+		rm -rf $(OS)-$(ARCH); \
+		rm helm.tar.gz; \
+	else \
+		echo "Helm version $(HELM_VERSION) is already installed."; \
+	fi
+
 install-golint: ## check golint if not exist install golint tools
-ifeq (, $(shell which golangci-lint))
-	@{ \
-	set -e ;\
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.40.0 ;\
-	}
-GOLINT_BIN=$(shell go env GOPATH)/bin/golangci-lint
+ifeq ($(shell $(GLOBAL_GOLANGCILINT) version --format short), $(GOLANGCILINT_VERSION))
+GOLINT_BIN=$(GLOBAL_GOLANGCILINT)
+else ifeq ($(shell $(GOBIN_GOLANGCILINT) version --format short), $(GOLANGCILINT_VERSION))
+GOLINT_BIN=$(GOBIN_GOLANGCILINT)
 else
-GOLINT_BIN=$(shell which golangci-lint)
+	@{ \
+    set -e ;\
+    echo 'installing golangci-lint-$(GOLANGCILINT_VERSION)' ;\
+    go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCILINT_VERSION) ;\
+    echo 'Successfully installed' ;\
+    }
+GOLINT_BIN=$(GOBIN)/golangci-lint
 endif
 
 lint: install-golint ## Run go lint against code.
@@ -116,12 +170,12 @@ lint: install-golint ## Run go lint against code.
 #     - build with proxy, maybe useful for Chinese users
 #       $# REGION=cn make docker-build
 docker-build:
-	TARGET_PLATFORMS=${TARGET_PLATFORMS} hack/make-rules/image_build.sh	$(WHAT)
+	TARGET_PLATFORMS=${TARGET_PLATFORMS} IMAGE_REPO=$(IMAGE_REPO) IMAGE_TAG=$(IMAGE_TAG) GIT_VERSION=$(GIT_VERSION) hack/make-rules/image_build.sh $(WHAT)
 
 
 # Build and Push the docker images with multi-arch
-docker-push: docker-push-yurthub docker-push-yurt-controller-manager docker-push-yurt-tunnel-server docker-push-yurt-tunnel-agent docker-push-node-servant docker-push-yurt-manager
-
+docker-push: docker-push-yurthub docker-push-node-servant docker-push-yurt-manager docker-push-yurt-tunnel-server docker-push-yurt-tunnel-agent docker-push-yurt-iot-dock
+	@echo "release openyurt images completed~~"
 
 docker-buildx-builder:
 	if ! docker buildx ls | grep -q container-builder; then\
@@ -133,47 +187,79 @@ docker-buildx-builder:
 	docker run --rm --privileged tonistiigi/binfmt --install all
 
 docker-push-yurthub: docker-buildx-builder
-	docker buildx build --no-cache --push ${DOCKER_BUILD_ARGS}  --platform ${TARGET_PLATFORMS} -f hack/dockerfiles/release/Dockerfile.yurthub . -t ${IMAGE_REPO}/yurthub:${GIT_VERSION}
-
-docker-push-yurt-controller-manager: docker-buildx-builder
-	docker buildx build --no-cache --push ${DOCKER_BUILD_ARGS}  --platform ${TARGET_PLATFORMS} -f hack/dockerfiles/release/Dockerfile.yurt-controller-manager . -t ${IMAGE_REPO}/yurt-controller-manager:${GIT_VERSION}
-
-docker-push-yurt-tunnel-server: docker-buildx-builder
-	docker buildx build --no-cache --push ${DOCKER_BUILD_ARGS}  --platform ${TARGET_PLATFORMS} -f hack/dockerfiles/release/Dockerfile.yurt-tunnel-server . -t ${IMAGE_REPO}/yurt-tunnel-server:${GIT_VERSION}
-
-docker-push-yurt-tunnel-agent: docker-buildx-builder
-	docker buildx build --no-cache --push ${DOCKER_BUILD_ARGS}  --platform ${TARGET_PLATFORMS} -f hack/dockerfiles/release/Dockerfile.yurt-tunnel-agent . -t ${IMAGE_REPO}/yurt-tunnel-agent:${GIT_VERSION}
+	docker buildx build --no-cache --push ${DOCKER_BUILD_ARGS}  --platform ${TARGET_PLATFORMS} -f hack/dockerfiles/release/Dockerfile.yurthub . -t ${IMAGE_REPO}/yurthub:${IMAGE_TAG}
 
 docker-push-node-servant: docker-buildx-builder
-	docker buildx build --no-cache --push ${DOCKER_BUILD_ARGS}  --platform ${TARGET_PLATFORMS} -f hack/dockerfiles/release/Dockerfile.node-servant . -t ${IMAGE_REPO}/node-servant:${GIT_VERSION}
+	docker buildx build --no-cache --push ${DOCKER_BUILD_ARGS}  --platform ${TARGET_PLATFORMS} -f hack/dockerfiles/release/Dockerfile.node-servant . -t ${IMAGE_REPO}/node-servant:${IMAGE_TAG}
 
 docker-push-yurt-manager: docker-buildx-builder
-	docker buildx build --no-cache --push ${DOCKER_BUILD_ARGS}  --platform ${TARGET_PLATFORMS} -f hack/dockerfiles/release/Dockerfile.yurt-manager . -t ${IMAGE_REPO}/yurt-manager:${GIT_VERSION}
+	docker buildx build --no-cache --push ${DOCKER_BUILD_ARGS}  --platform ${TARGET_PLATFORMS} -f hack/dockerfiles/release/Dockerfile.yurt-manager . -t ${IMAGE_REPO}/yurt-manager:${IMAGE_TAG}
 
+docker-push-yurt-tunnel-server: docker-buildx-builder
+	docker buildx build --no-cache --push ${DOCKER_BUILD_ARGS}  --platform ${TARGET_PLATFORMS} -f hack/dockerfiles/release/Dockerfile.yurt-tunnel-server . -t ${IMAGE_REPO}/yurt-tunnel-server:${IMAGE_TAG}
+
+docker-push-yurt-tunnel-agent: docker-buildx-builder
+	docker buildx build --no-cache --push ${DOCKER_BUILD_ARGS}  --platform ${TARGET_PLATFORMS} -f hack/dockerfiles/release/Dockerfile.yurt-tunnel-agent . -t ${IMAGE_REPO}/yurt-tunnel-agent:${IMAGE_TAG}
+
+docker-push-yurt-iot-dock: docker-buildx-builder
+	docker buildx build --no-cache --push ${DOCKER_BUILD_ARGS}  --platform ${TARGET_PLATFORMS} -f hack/dockerfiles/release/Dockerfile.yurt-iot-dock . -t ${IMAGE_REPO}/yurt-iot-dock:${IMAGE_TAG}
+
+.PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 #	hack/make-rule/generate_openapi.sh // TODO by kadisi
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./pkg/apis/..."
 
-manifests: generate ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+.PHONY: manifests
+manifests: kustomize kubectl yq generate ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	rm -rf $(BUILD_KUSTOMIZE)
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=role webhook paths="./pkg/..." output:crd:artifacts:config=$(BUILD_KUSTOMIZE)/auto_generate/crd output:rbac:artifacts:config=$(BUILD_KUSTOMIZE)/auto_generate/rbac output:webhook:artifacts:config=$(BUILD_KUSTOMIZE)/auto_generate/webhook
-	hack/make-rules/kustomize_to_chart.sh --crd $(BUILD_KUSTOMIZE)/auto_generate/crd  --webhook $(BUILD_KUSTOMIZE)/auto_generate/webhook --rbac $(BUILD_KUSTOMIZE)/auto_generate/rbac --output $(BUILD_KUSTOMIZE)/kustomize --templateDir charts/openyurt/templates
-
+	hack/make-rules/generate_manifests.sh
+	hack/make-rules/kustomize_to_chart.sh --crd $(BUILD_KUSTOMIZE)/auto_generate/crd  --webhook $(BUILD_KUSTOMIZE)/auto_generate/webhook --rbac $(BUILD_KUSTOMIZE)/auto_generate/rbac --output $(BUILD_KUSTOMIZE)/kustomize --chartDir charts/yurt-manager
 
 # newcontroller
 # .e.g
 # make newcontroller GROUP=apps VERSION=v1beta1 KIND=example SHORTNAME=examples SCOPE=Namespaced 
 # make newcontroller GROUP=apps VERSION=v1beta1 KIND=example SHORTNAME=examples SCOPE=Cluster
+.PHONY: newcontroller
 newcontroller:
 	hack/make-rules/add_controller.sh --group $(GROUP) --version $(VERSION) --kind $(KIND) --shortname $(SHORTNAME) --scope $(SCOPE)
 
-
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
+.PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
-ifeq ("$(shell $(CONTROLLER_GEN) --version 2> /dev/null)", "Version: v0.7.0")
+ifeq ("$(shell $(CONTROLLER_GEN) --version 2> /dev/null)", "Version: v0.15.0")
 else
 	rm -rf $(CONTROLLER_GEN)
-	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.7.0)
+	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.15.0)
+endif
+
+.PHONY: kubectl
+kubectl: $(KUBECTL) ## Download kustomize locally if necessary. If wrong version is installed, it will be removed before downloading.
+$(KUBECTL): $(LOCALBIN)
+	@if test -x $(LOCALBIN)/kubectl && ! $(LOCALBIN)/kubectl version | grep -q $(KUBECTL_VERSION); then \
+		echo "$(LOCALBIN)/kubectl version is not expected $(KUBECTL_VERSION). Removing it before installing."; \
+		rm -rf $(LOCALBIN)/kubectl; \
+	fi
+	test -s $(LOCALBIN)/kubectl || curl https://storage.googleapis.com/kubernetes-release/release/$(KUBECTL_VERSION)/bin/$(shell go env GOOS)/$(shell go env GOARCH)/kubectl -o $(KUBECTL)
+	chmod +x $(KUBECTL)
+
+KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
+.PHONY: kustomize
+kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary. If wrong version is installed, it will be removed before downloading.
+$(KUSTOMIZE): $(LOCALBIN)
+	@if test -x $(LOCALBIN)/kustomize && ! $(LOCALBIN)/kustomize version | grep -q $(KUSTOMIZE_VERSION); then \
+		echo "$(LOCALBIN)/kustomize version is not expected $(KUSTOMIZE_VERSION). Removing it before installing."; \
+		rm -f $(LOCALBIN)/kustomize; \
+	fi
+	test -s $(LOCALBIN)/kustomize || { curl -Ss $(KUSTOMIZE_INSTALL_SCRIPT) | bash -s -- $(subst v,,$(KUSTOMIZE_VERSION)) $(LOCALBIN); }
+
+.PHONY: yq
+yq:
+ifndef YQ
+	@echo "Installing yq..."
+	test -s $(LOCALBIN)/yq || curl -k -L https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_$(shell go env GOOS)_$(shell go env GOARCH) -o $(LOCALBIN)/yq
+	chmod +x $(LOCALBIN)/yq
+else
+	@echo "yq is already installed"
 endif
 
 # go-get-tool will 'go get' any package $2 and install it to $1.
@@ -189,3 +275,10 @@ GOBIN=$(PROJECT_DIR)/bin go install $(2) ;\
 rm -rf $$TMP_DIR ;\
 }
 endef
+
+fmt:
+	go fmt ./...
+	find . -name '*.go' | grep -Ev 'vendor|thrift_gen' | xargs goimports -w
+
+vet:
+	GO111MODULE=${GO_MODULE} go list ./... | grep -v "vendor" | xargs go vet

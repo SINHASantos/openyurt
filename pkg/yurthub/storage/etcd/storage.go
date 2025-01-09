@@ -32,14 +32,14 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
 
-	"github.com/openyurtio/openyurt/pkg/yurthub/poolcoordinator/resources"
 	"github.com/openyurtio/openyurt/pkg/yurthub/storage"
 	"github.com/openyurtio/openyurt/pkg/yurthub/storage/utils"
 	"github.com/openyurtio/openyurt/pkg/yurthub/util/fs"
+	"github.com/openyurtio/openyurt/pkg/yurthub/yurtcoordinator/resources"
 )
 
 const (
-	StorageName                   = "pool-coordinator"
+	StorageName                   = "yurt-coordinator"
 	defaultTimeout                = 5 * time.Second
 	defaultHealthCheckPeriod      = 10 * time.Second
 	defaultDialTimeout            = 10 * time.Second
@@ -83,11 +83,11 @@ type etcdStorage struct {
 	// 2. special resources: which are only used by this nodes
 	// In local cache, we do not need to bother to distinguish these two kinds.
 	// For special resources, this node absolutely can create/update/delete them.
-	// For common resources, thanks to list/watch we can ensure that resources in pool-coordinator
+	// For common resources, thanks to list/watch we can ensure that resources in yurt-coordinator
 	// are finally consistent with the cloud, though there maybe a little jitter.
 	localComponentKeyCache *componentKeyCache
 	// For etcd storage, we do not need to cache cluster info, because
-	// we can get it form apiserver in pool-coordinator.
+	// we can get it form apiserver in yurt-coordinator.
 	doNothingAboutClusterInfo
 }
 
@@ -104,7 +104,7 @@ func NewStorage(ctx context.Context, cfg *EtcdStorageConfig) (storage.Store, err
 
 		tlsConfig, err = tlsInfo.ClientConfig()
 		if err != nil {
-			return nil, fmt.Errorf("failed to create tls config for etcd client, %v", err)
+			return nil, fmt.Errorf("could not create tls config for etcd client, %v", err)
 		}
 	}
 
@@ -118,7 +118,7 @@ func NewStorage(ctx context.Context, cfg *EtcdStorageConfig) (storage.Store, err
 
 	client, err := clientv3.New(clientConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create etcd client, %v", err)
+		return nil, fmt.Errorf("could not create etcd client, %v", err)
 	}
 
 	s := &etcdStorage{
@@ -141,7 +141,10 @@ func NewStorage(ctx context.Context, cfg *EtcdStorageConfig) (storage.Store, err
 		poolScopedResourcesGetter: resources.GetPoolScopeResources,
 	}
 	if err := cache.Recover(); err != nil {
-		return nil, fmt.Errorf("failed to recover component key cache from %s, %v", cacheFilePath, err)
+		if err := client.Close(); err != nil {
+			return nil, fmt.Errorf("could not close etcd client, %v", err)
+		}
+		return nil, fmt.Errorf("could not recover component key cache from %s, %v", cacheFilePath, err)
 	}
 	s.localComponentKeyCache = cache
 
@@ -169,7 +172,7 @@ func (s *etcdStorage) clientLifeCycleManagement() {
 				if client, err := clientv3.New(s.clientConfig); err == nil {
 					klog.Infof("client reconnected to etcd server, %s", client.ActiveConnection().GetState().String())
 					if err := s.client.Close(); err != nil {
-						klog.Errorf("failed to close old client, %v", err)
+						klog.Errorf("could not close old client, %v", err)
 					}
 					s.client = client
 					return
@@ -182,6 +185,9 @@ func (s *etcdStorage) clientLifeCycleManagement() {
 	for {
 		select {
 		case <-s.ctx.Done():
+			if err := s.client.Close(); err != nil {
+				klog.Errorf("could not close etcd client, %v", err)
+			}
 			klog.Info("etcdstorage lifecycle routine exited")
 			return
 		default:
@@ -209,7 +215,7 @@ func (s *etcdStorage) Create(key storage.Key, content []byte) error {
 	keyStr := key.Key()
 	originRv, err := getRvOfObject(content)
 	if err != nil {
-		return fmt.Errorf("failed to get rv from content when creating %s, %v", keyStr, err)
+		return fmt.Errorf("could not get rv from content when creating %s, %v", keyStr, err)
 	}
 
 	ctx, cancel := context.WithTimeout(s.ctx, defaultTimeout)
@@ -276,6 +282,7 @@ func (s *etcdStorage) Get(key storage.Key) ([]byte, error) {
 
 // TODO: When using etcd, do we have the case:
 //	"If the rootKey exists in the store but no keys has the prefix of rootKey"?
+
 func (s *etcdStorage) List(key storage.Key) ([][]byte, error) {
 	if err := utils.ValidateKey(key, storageKey{}); err != nil {
 		return [][]byte{}, err
@@ -396,7 +403,7 @@ func (s *etcdStorage) ReplaceComponentList(component string, gvr schema.GroupVer
 	for k := range addedOrUpdated {
 		rv, err := getRvOfObject(contents[k])
 		if err != nil {
-			klog.Errorf("failed to process %s in list object, %v", k.Key(), err)
+			klog.Errorf("could not process %s in list object, %v", k.Key(), err)
 			continue
 		}
 		createOrUpdateOp := clientv3.OpTxn(
@@ -507,9 +514,9 @@ func fresherThan(rv string, key string) clientv3.Cmp {
 
 type doNothingAboutClusterInfo struct{}
 
-func (d doNothingAboutClusterInfo) SaveClusterInfo(_ storage.ClusterInfoKey, _ []byte) error {
+func (d doNothingAboutClusterInfo) SaveClusterInfo(_ storage.Key, _ []byte) error {
 	return nil
 }
-func (d doNothingAboutClusterInfo) GetClusterInfo(_ storage.ClusterInfoKey) ([]byte, error) {
+func (d doNothingAboutClusterInfo) GetClusterInfo(_ storage.Key) ([]byte, error) {
 	return nil, nil
 }

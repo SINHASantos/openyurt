@@ -1,5 +1,418 @@
 # CHANGELOG
 
+## v1.6.0
+
+### What's New
+
+**Support Kubernetes up to V1.30**
+
+“k8s.io/xxx” and all its related dependencies are upgraded to version “v0.30.6”, for ensuring OpenYurt is compatible with Kubernetes v1.30 version. This compatibility has been confirmed by an end-to-end (E2E) test where we started a Kubernetes v1.30 cluster using KinD and deployed the latest components of OpenYurt.
+[#2179](https://github.com/openyurtio/openyurt/pull/2179)
+[#2249](https://github.com/openyurtio/openyurt/pull/2249)
+
+**Enhance edge autonomy capabilities**
+
+OpenYurt already offers robust edge autonomy capabilities, ensuring that applications on edge nodes can continue to operate even when the cloud-edge network is disconnected. However, there are several areas where the current edge autonomy capabilities can still be improved. For instance, once nodes are annotated with autonomy annotations, the cloud controller does not automatically evict Pods, regardless of whether the disconnection is due to cloud-edge network issues or node failures, yet users expect automatic Pod eviction during node failures. Additionally, the current edge autonomy capabilities cannot be directly used in managed Kubernetes environments because users cannot disable the NodeLifeCycle controller within the Kube-Controller-Manager component of managed Kubernetes. In this release, new endpoints/endpointslices webhooks are added to ensure that pods are not removed from the backend of the Service. Additionally, a new autonomous annotation is introduced, supporting the configuration of autonomous time.
+[#2155](https://github.com/openyurtio/openyurt/pull/2155)
+[#2201](https://github.com/openyurtio/openyurt/pull/2201)
+[#2211](https://github.com/openyurtio/openyurt/pull/2211)
+[#2218](https://github.com/openyurtio/openyurt/pull/2218)
+[#2241](https://github.com/openyurtio/openyurt/pull/2241)
+
+**Node-level Traffic Reuse Capability**
+
+In an OpenYurt cluster, control components are deployed in the cloud, and edge nodes usually interact with the cloud through the public internet, which can lead to significant consumption of cloud-edge traffic. This problem is more pronounced in large-scale clusters, mainly due to the edge-side components performing full-scale list/watch operations on resources. This not only consumes a large amount of cloud-edge traffic but also places considerable pressure on the apiserver due to the high volume of list operations. In this release, We have added a traffic multiplexing module in YurtHub. When multiple clients request the same resource (services, endpointslices), YurtHub returns data from the local cache, reducing the number of requests to the apiserver.
+[#2060](https://github.com/openyurtio/openyurt/pull/2060)
+[#2141](https://github.com/openyurtio/openyurt/pull/2141)
+[#2242](https://github.com/openyurtio/openyurt/pull/2242)
+
+### Other Notable changes
+
+- Upgrade platformadmin's yurtappset dependencies to v1beta1 by @YTGhost in https://github.com/openyurtio/openyurt/pull/2103
+- Add yurthub service env updater filter by @techworldhello in https://github.com/openyurtio/openyurt/pull/2165
+- set transform to strip managedfields for informer by @vie-serendipity in https://github.com/openyurtio/openyurt/pull/2149
+- support cache response for partial object metadata requests。 by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/2170
+- build iot system configuration isolation on nodepool by @WoShiZhangmingyu in https://github.com/openyurtio/openyurt/pull/2147
+- using the kubeconfig flag in controller-runtime. by @zyjhtangtang in https://github.com/openyurtio/openyurt/pull/2193
+- add events when no nodepool match with loadbalancerset services. by @zyjhtangtang in https://github.com/openyurtio/openyurt/pull/2195
+- Modify safety reporting Email by @zyjhtangtang in https://github.com/openyurtio/openyurt/pull/2214
+
+### Fixes
+
+- fix(iot): the mount type of hostpath for localtime in napa by @LavenderQAQ in https://github.com/openyurtio/openyurt/pull/2110
+- fix: create abspath dir in case that contents is empty by @vie-serendipity in https://github.com/openyurtio/openyurt/pull/2164
+- fix: masterservice missing clusterIPs field. by @fungaren in https://github.com/openyurtio/openyurt/pull/2173
+- fix: support cache response for partial object metedata watch request by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/2209
+- fix: bug of yurtappset always the last tweaks make effect by @vie-serendipity in https://github.com/openyurtio/openyurt/pull/2229
+- fix: CRD WebhookConversion respect WEBHOOK_HOST env by @fungaren in https://github.com/openyurtio/openyurt/pull/2217
+- fix: go lint errors by @luc99hen in https://github.com/openyurtio/openyurt/pull/2235
+
+### Proposals
+
+- proposal: Node-level Traffic Reuse Capability by @zyjhtangtang in https://github.com/openyurtio/openyurt/pull/2060
+- Proposal: enhancing edge autonomy by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/2155
+- proposal: enhance operational efficiency of K8s cluster in user's IDC by @huangchenzhao in https://github.com/openyurtio/openyurt/pull/2124
+- Proposal: build iot system configuration isolation on nodepool(openyurtio#1597) by @WoShiZhangmingyu in https://github.com/openyurtio/openyurt/pull/2135
+
+### Contributors
+- [@rambohe-ch](https://github.com/rambohe-ch)
+- [@LavenderQAQ](https://github.com/LavenderQAQ)
+- [@YTGhost](https://github.com/YTGhost)
+- [@leossteven](https://github.com/leossteven)
+- [@monikahu](https://github.com/monikahu)
+- [@zyjhtangtang](https://github.com/zyjhtangtang)
+- [@paulzhn](https://github.com/paulzhn)
+- [@techworldhello](https://github.com/techworldhello)
+- [@vie-serendipity](https://github.com/vie-serendipity)
+- [@fengshunli](https://github.com/fengshunli)
+- [@fungaren](https://github.com/fungaren)
+- [@huangchenzhao](https://github.com/huangchenzhao)
+- [@WoShiZhangmingyu](https://github.com/WoShiZhangmingyu)
+- [@tnsimon](https://github.com/tnsimon)
+- [@JameKeal](https://github.com/JameKeal)
+- [@luc99hen](https://github.com/luc99hen)
+
+
+## v1.5.0
+
+### What's New
+
+**Support Kubernetes up to V1.28**
+
+“k8s.io/xxx” and all its related dependencies are upgraded to version “v0.28.9”, for ensuring OpenYurt is compatible with Kubernetes v1.28 version. This compatibility has been confirmed by an end-to-end (E2E) test where we started a Kubernetes v1.28 cluster using KinD and deployed the latest components of OpenYurt. At the same time, all the key components of OpenYurt, such as yurt-manager and yurthub, are deployed on the Kubernetes cluster via Helm to ensure that the Helm charts provided by the OpenYurt community can run stably in the production environment.
+[#2047](https://github.com/openyurtio/openyurt/pull/2047)
+[#2074](https://github.com/openyurtio/openyurt/pull/2074)
+
+**Reduce cloud-edge traffic spike during rapid node additions**
+
+`NodePool` resource is essential for managing groups of nodes within OpenYurt clusters, as it records details of all nodes in the collective through the `NodePool.status.nodes` field. YurtHub relies on this information to identify endpoints within the same NodePool, thereby enabling pool-level service topology functionality. However, when a large NodePool—potentially comprising thousands of nodes—experiences swift expansion, such as the integration of hundreds of edge nodes within a mere minute, the surge in cloud-to-edge network traffic can be significant. In this release, a new type of resource called `NodeBucket` has been introduced. It provides a scalable and streamlined method for managing extensive `NodePool`, significantly reducing the impact on cloud-edge traffic during periods of rapid node growth, and ensuring the stability of the clusters is maintained.
+[#1864](https://github.com/openyurtio/openyurt/pull/1864)
+[#1874](https://github.com/openyurtio/openyurt/pull/1874)
+[#1930](https://github.com/openyurtio/openyurt/pull/1930)
+
+**Upgrade `YurtAppSet` to v1beta1 version**
+
+YurtAppSet v1beta1 is introduced to facilitate the management of multi-region workloads. Users can use YurtAppSet to distribute the same `WorkloadTemplate` (Deployment/Statefulset) to different nodepools by a label selector `NodePoolSelector` or nodepool name slice (`Pools`). Users can also customize the configuration of workloads in different node pools through `WorkloadTweaks`.
+In this release, we have combined the functionality from the three old crds (YurtAppSet v1alpha1, YurtAppDaemon and YurtAppOverrider) in yurtappset v1beta1. We recommend to use this in favor of the old ones.
+[#1890](https://github.com/openyurtio/openyurt/pull/1890)
+[#1931](https://github.com/openyurtio/openyurt/pull/1931)
+[#1939](https://github.com/openyurtio/openyurt/pull/1939)
+[#1974](https://github.com/openyurtio/openyurt/pull/1974)
+[#1997](https://github.com/openyurtio/openyurt/pull/1997)
+
+**Improve transparent management mechanism for control traffic from edge to cloud**
+
+The current transparent management mechanism for cloud-edge control traffic has certain limitations and cannot effectively support direct requests to the default/kubernetes service. In this release, a new transparent management mechanism for cloud-edge control traffic, aimed at enabling pods using InClusterConfig or the default/kubernetes service name to access the kube-apiserver via YurtHub without needing to be aware of the details of the public network connection between the cloud and edge.
+[#1975](https://github.com/openyurtio/openyurt/pull/1975)
+[#1996](https://github.com/openyurtio/openyurt/pull/1996)
+
+**Separate clients for yurt-manager component**
+
+Yurt-manager is an important component in cloud environment for OpenYurt which holds multiple controllers and webhooks. Those controllers and webhooks shared one client and one set of RBAC (yurt-manager-role/yurt-manager-role-binding/yurt-manager-sa) which grew bigger as we add more function into yurt-manager. This mechanism makes a controller has access it shouldn't has. and it's difficult to find out the request is from which controller from the audit logs. In the latest release, we restrict each controller/webhook to only the permissions it may use and separate RBAC and UA for different controllers and webhooks.
+[#2051](https://github.com/openyurtio/openyurt/pull/2051)
+[#2069](https://github.com/openyurtio/openyurt/pull/2069)
+
+**Enhancement to Yurthub's Autonomy capabilities**
+
+New autonomy condition have been added to node conditions so that yurthub can report autonomy status of node in real time at each nodeStatusUpdateFrequency. This condition allows for accurate determination of each node's autonomy status. In addition, an error key mechanism has been introduced to log cache failure keys along with their corresponding fault reasons. The error keys are persisted using the AOF (Append-Only File) method, ensuring that the autonomy state is recovered even after a reboot and preventing the system from entering a pseudo-autonomous state. These enhancements also facilitate easier troubleshooting when autonomy issues arise.
+[#2015](https://github.com/openyurtio/openyurt/pull/2015)
+[#2033](https://github.com/openyurtio/openyurt/pull/2033)
+[#2096](https://github.com/openyurtio/openyurt/pull/2096)
+
+### Other Notable changes
+
+- improve ca data for yurthub component by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/1815
+- improve FieldIndexer setting in yurt-manager by @2456868764 in https://github.com/openyurtio/openyurt/pull/1834
+- fix: yurtadm join ignorePreflightErrors could not set all by @YTGhost in https://github.com/openyurtio/openyurt/pull/1837
+- Feature: add name-length of dummy interface too long error by @8rxn in https://github.com/openyurtio/openyurt/pull/1875
+- feat: support v3 rest api client for edgex v3 api by @wangxye in https://github.com/openyurtio/openyurt/pull/1850
+- feat: support edgex napa version by auto-collector by @LavenderQAQ in https://github.com/openyurtio/openyurt/pull/1852
+- feat: improve discardcloudservice filter in yurthub component (#1924) by @huangchenzhao in https://github.com/openyurtio/openyurt/pull/1926
+- Add missing verb to the role of node lifecycle controller by @crazytaxii in https://github.com/openyurtio/openyurt/pull/1936
+- don't cache csr and sar resource in yurthub by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/1949
+- feat: improve hostNetwork mode of NodePool by adding NodeAffinity to pods with specified annotation (#1935) by @huangchenzhao in https://github.com/openyurtio/openyurt/pull/1959
+- move list object handling from ObjectFilter into ResponseFilter by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/1991
+- The gateway can forward traffic from extra source cidrs by @River-sh in https://github.com/openyurtio/openyurt/pull/1993
+- return back watch.Deleted event to clients when watch object is removed in OjbectFilters by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/1995
+- add pool service controller. by @zyjhtangtang in https://github.com/openyurtio/openyurt/pull/2010
+- aggregated annotations and labels. by @zyjhtangtang in https://github.com/openyurtio/openyurt/pull/2027
+- improve pod webhook for adapting hostnetwork mode nodepool by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/2050
+- intercept kubelet get node request in order to reduce the traffic by @vie-serendipity in https://github.com/openyurtio/openyurt/pull/2039
+- bump controller-gen to v0.13.0 by @Congrool in https://github.com/openyurtio/openyurt/pull/2056
+- improve nodepool conversion by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/2080
+- feat: add version metrics for yurt-manager and yurthub components by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/2094
+
+### Fixes
+
+- fix cache manager panic in yurthub by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/1950
+- fix: upgrade the version of runc to avoid security risk by @qclc in https://github.com/openyurtio/openyurt/pull/1972
+- fix only openyurt crd conversion should be handled for upgrading cert by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/2013
+- fix the cache leak in yurtappoverrider controller by @MeenuyD in https://github.com/openyurtio/openyurt/pull/1795
+- fix(yurt-manager): add clusterrole for nodes/status subresources by @qclc in https://github.com/openyurtio/openyurt/pull/1884
+- fix: close dst file by @testwill in https://github.com/openyurtio/openyurt/pull/2046
+
+### Proposals
+
+- Proposal: High Availability of Edge Services by @Rui-Gan in https://github.com/openyurtio/openyurt/pull/1816
+- Proposal: yurt express: openyurt data transmission system proposal by @qsfang in https://github.com/openyurtio/openyurt/pull/1840
+- proposal: add NodeBucket to reduce cloud-edge traffic spike during rapid node additions. by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/1864
+- Proposal: add yurtappset v1beta1 proposal by @luc99hen in https://github.com/openyurtio/openyurt/pull/1890
+- proposal: improve transparent management mechanism for control traffic from edge to cloud by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/1975
+- Proposal: enhancement of edge autonomy by @vie-serendipity in https://github.com/openyurtio/openyurt/pull/2015
+- Proposal: separate yurt-manager clients by @luc99hen in https://github.com/openyurtio/openyurt/pull/2051
+
+### Contributors
+
+**Thank you to everyone who contributed to this release!** ❤
+
+- [@wangxye](https://github.com/wangxye)
+- [@huiwq1990](https://github.com/huiwq1990)
+- [@testwill](https://github.com/testwill)
+- [@fengshunli](https://github.com/fengshunli)
+- [@Congrool](https://github.com/Congrool)
+- [@zyjhtangtang](https://github.com/zyjhtangtang)
+- [@vie-serendipity](https://github.com/vie-serendipity)
+- [@dsy3502](https://github.com/dsy3502)
+- [@YTGhost](https://github.com/YTGhost)
+- [@River-sh](https://github.com/River-sh)
+- [@qclc](https://github.com/qclc)
+- [@lilongfeng0902](https://github.com/lilongfeng0902)
+- [@NewKeyTo](https://github.com/NewKeyTo)
+- [@crazytaxii](https://github.com/crazytaxii)
+- [@MeenuyD](https://github.com/MeenuyD)
+- [@dzcvxe](https://github.com/dzcvxe)
+- [@2456868764](https://github.com/2456868764)
+- [@8rxn](https://github.com/8rxn)
+- [@huangchenzhao](https://github.com/huangchenzhao)
+- [@karthik507](https://github.com/karthik507)
+- [@MundaneImmortal](https://github.com/MundaneImmortal)
+- [@rambohe-ch](https://github.com/rambohe-ch)
+
+And thank you very much to everyone else not listed here who contributed in other ways like filing issues,
+giving feedback, helping users in community group, etc.
+
+## v1.4.0
+
+### What's New
+
+**Support for HostNetwork Mode NodePool**
+
+When the resources of edge nodes are limited and only simple applications need to be run (for instance, situations where container network is not needed and there is no need for communication between applications),
+using a HostNetwork mode nodepool is a reasonable choice. When creating a nodepool, users only need to set spec.HostNetwork=true to create a HostNetwork mode nodepool.
+
+In this mode, only some essential components such as kubelet, yurthub and raven-agent will be installed on all nodes in the pool. In addition, Pods scheduled on these nodes will automatically adopt host network mode.
+This method effectively reduces resource consumption while maintaining application performance efficiency.
+
+**Support for customized configuration at the nodepool level for multi-region workloads**
+
+YurtAppOverrider is a new CRD used to customize the configuration of the workloads managed by YurtAppSet/YurtAppDaemon. It provides a simple and straightforward way to configure every field of the workload under each nodepool.
+It is fundamental component of multi-region workloads configuration rendering engine.
+
+**Support for building edgex iot systems by using PlatformAdmin**
+
+PlatformAdmin is a CRD that manages the IoT systems in the OpenYurt nodepool. It has evolved from the previous yurt-edgex-manager. Starting from this version, the functionality of yurt-edgex-controller has been merged into yurt-manager. This means that users no longer need to deploy any additional components; they only need to install yurt-manager to have all the capabilities for managing edge devices.
+
+PlatformAdmin allows users with a user-friendly way to deploy a complete edgex system on nodepool. It comes with an optional component library and configuration templates. Advanced users can also customize the configuration of this system according to their needs.
+
+Currently, PlatformAdmin supports all versions of EdgeX from Hanoi to Minnesota. In the future, it will continue to rapidly support upcoming releases using the auto-collector feature. This ensures that PlatformAdmin remains compatible with the latest versions of EdgeX as they are released.
+
+**Supports yurt-iot-dock deployment as an iot system component**
+
+yurt-iot-dock is a component responsible for managing edge devices in IoT system. It has evolved from the previous yurt-device-controller. As a component that connects the cloud and edge device management platforms, yurt-iot-dock abstracts three CRDs: DeviceProfile, DeviceService, and Device. These CRDs are used to represent and manage corresponding resources on the device management platform, thereby impacting real-world devices.
+
+By declaratively modifying the fields of these CRs, users can achieve the operational and management goals of complex edge devices in a cloud-native manner. yurt-iot-dock is deployed by PlatformAdmin as an optional IoT component. It is responsible for device synchronization during startup and severs the synchronization relationship when being terminated or destroyed.
+
+In this version, the deployment and destruction of the yurt-iot-dock are all controlled by PlatformAdmin, which improves the ease of use of the yurt-iot-dock.
+
+**Some Repos are archived**
+
+With the upgrading of OpenYurt architecture, the functions of quite a few components are merged into Yurt-Manager (e.g. yurt-app-manager, raven-controller-manager, etc.),
+or there are repos migrated to openyurt for better management (e.g. yurtiotdock). The following repos have been archived:
+
+- [yurt-app-manager](https://github.com/openyurtio/yurt-app-manager)
+- [yurt-app-manager-api](https://github.com/openyurtio/yurt-app-manager-api)
+- [raven-controller-manager](https://github.com/openyurtio/raven-controller-manager)
+- [yurt-edgex-manager](https://github.com/openyurtio/yurt-edgex-manager)
+- [yurt-device-controller](https://github.com/openyurtio/yurt-device-controller)
+- [yurtcluster-operator](https://github.com/openyurtio/yurtcluster-operator)
+
+### Other Notable changes
+
+- feat: use real kubernetes server address to yurthub when yurtadm join by @Lan-ce-lot in https://github.com/openyurtio/openyurt/pull/1517
+- yurtadm support enable kubelet service by @YTGhost in https://github.com/openyurtio/openyurt/pull/1523
+- feat: support SIGUSR1 signal for yurthub by @y-ykcir in https://github.com/openyurtio/openyurt/pull/1487
+- feat: remove yurtadm init command by @YTGhost in https://github.com/openyurtio/openyurt/pull/1537
+- add yurtadm join node in specified nodepool by @JameKeal in https://github.com/openyurtio/openyurt/pull/1402
+- rename pool-coordinator to yurt-coordinator for charts by @JameKeal in https://github.com/openyurtio/openyurt/pull/1551
+- move iot controller to yurt-manager by @Rui-Gan in https://github.com/openyurtio/openyurt/pull/1488
+- feat: provide config option for yurtadm by @YTGhost in https://github.com/openyurtio/openyurt/pull/1547
+- add yurtadm to install/uninstall staticpod by @JameKeal in https://github.com/openyurtio/openyurt/pull/1550
+- change access permission to default in general. by @fujitatomoya in https://github.com/openyurtio/openyurt/pull/1576
+- build: added github registry by @siredmar in https://github.com/openyurtio/openyurt/pull/1578
+- feat: support edgex minnesota through auto-collector by @LavenderQAQ in https://github.com/openyurtio/openyurt/pull/1582
+- feat: prevent node movement by label modification by @y-ykcir in https://github.com/openyurtio/openyurt/pull/1444
+- add cpu limit for yurthub by @huweihuang in https://github.com/openyurtio/openyurt/pull/1609
+- feat: provide users with the ability to customize the edgex framework by @LavenderQAQ in https://github.com/openyurtio/openyurt/pull/1596
+- add kubelet certificate mode in yurthub by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/1625
+- delete configmap when yurtstaticset is deleting by @JameKeal in https://github.com/openyurtio/openyurt/pull/1640
+- add new gateway version v1beta1 by @River-sh in https://github.com/openyurtio/openyurt/pull/1641
+- feat: reclaim device, deviceprofile and deviceservice before exiting YurtIoTDock  by @wangxye in https://github.com/openyurtio/openyurt/pull/1647
+- feat: upgrade YurtIoTDock to support edgex v3 api by @wangxye in https://github.com/openyurtio/openyurt/pull/1666
+- feat: add token format checking to yurtadm join process by @YTGhost in https://github.com/openyurtio/openyurt/pull/1681
+- Add status info to YurtAppSet/YurtAppDaemon by @vie-serendipity in https://github.com/openyurtio/openyurt/pull/1702
+- fix(yurt-manager): raven controller can't list calico blockaffinity by @luckymrwang in https://github.com/openyurtio/openyurt/pull/1676
+- feat: support yurtadm config command by @YTGhost in https://github.com/openyurtio/openyurt/pull/1709
+- improve lease lock for yurt-manager component by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/1741
+- add nodelifecycle controller by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/1746
+- disable the iptables setting of yurthub component by default by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/1770
+
+### Fixes
+
+- fix memory leak for yur-tunnel-server by @huweihuang in https://github.com/openyurtio/openyurt/pull/1471
+- fix yurthub memory leak by @JameKeal in https://github.com/openyurtio/openyurt/pull/1501
+- fix yurtstaticset workerpod reset error by @JameKeal in https://github.com/openyurtio/openyurt/pull/1526
+- fix conflicts for getting node by local storage in yurthub filters by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/1552
+- fix work dir nested `yurthub/yurthub` by @luc99hen in https://github.com/openyurtio/openyurt/pull/1693
+- fix  pool scope crd resource etcd key path by @qsfang in https://github.com/openyurtio/openyurt/pull/1729
+
+### Proposals
+
+- proposal for raven l7 by @River-sh in https://github.com/openyurtio/openyurt/pull/1541
+- proposal of support raven NAT traversal by @YTGhost in https://github.com/openyurtio/openyurt/pull/1639
+- Proposal for Multi-region workloads configuration rendering engine by @vie-serendipity in https://github.com/openyurtio/openyurt/pull/1600
+- Proposal of install openyurt components using dashboard by @401lrx in https://github.com/openyurtio/openyurt/pull/1664
+- Proposal use message-bus instead of REST to communicate with EdgeX by @Pluviophile225 in https://github.com/openyurtio/openyurt/pull/1680
+
+### Contributors
+
+**Thank you to everyone who contributed to this release!** ❤
+
+- [@huiwq1990](https://github.com/huiwq1990)
+- [@y-ykcir](https://github.com/y-ykcir)
+- [@JameKeal](https://github.com/JameKeal)
+- [@Lan-ce-lot](https://github.com/Lan-ce-lot)
+- [@YTGhost](https://github.com/YTGhost)
+- [@fujitatomoya](https://github.com/fujitatomoya)
+- [@LavenderQAQ](https://github.com/LavenderQAQ)
+- [@River-sh](https://github.com/River-sh)
+- [@huweihuang](https://github.com/huweihuang)
+- [@luc99hen](https://github.com/luc99hen)
+- [@luckymrwang](https://github.com/luckymrwang)
+- [@wangzihao05](https://github.com/wangzihao05)
+- [@yojay11717](https://github.com/yojay11717)
+- [@lishaokai1995](https://github.com/lishaokai1995)
+- [@yeqiugt](https://github.com/yeqiugt)
+- [@TonyZZhang](https://github.com/TonyZZhang)
+- [@vie-serendipity](https://github.com/vie-serendipity)
+- [@my0sotis](https://github.com/my0sotis)
+- [@Rui-Gan](https://github.com/Rui-Gan)
+- [@zhy76](https://github.com/zhy76)
+- [@siredmar](https://github.com/siredmar)
+- [@wangxye](https://github.com/wangxye)
+- [@401lrx](https://github.com/401lrx)
+- [@testwill](https://github.com/testwill)
+- [@Pluviophile225](https://github.com/Pluviophile225)
+- [@shizuocheng](https://github.com/shizuocheng)
+- [@qsfang](https://github.com/qsfang)
+
+And thank you very much to everyone else not listed here who contributed in other ways like filing issues,
+giving feedback, helping users in community group, etc.
+
+## v1.3.0
+
+### What's New
+
+**Refactor OpenYurt control plane components**
+
+In order to improve the management of all repos in OpenYurt community, and reduce the complexity of installing OpenYurt,
+after detailed discussions in the community, a new component named yurt-manager was agreed to manage controllers and webhooks
+scattered across multiple components (like yurt-controller-manager, yurt-app-manager, raven-controller-manager, etc.).
+
+After the refactoring, based on the controller-runtime framework, new controllers and webhooks can be easily added to the
+yurt-manager component in the future. Also note that the yurt-manager must be installed on the same node as the K8s
+control-plane component (like kube-controller-manager). [#1067](https://github.com/openyurtio/openyurt/issues/1067)
+
+**Support OTA or AdvancedRollingUpdate upgrade models for static pods**
+
+As you know, static pods are managed directly by the kubelet daemon on the node and there is no APIServer watching them.
+In general, if a user wants to upgrade a static pod(like YurtHub), the user should manually modify or replace the manifest
+of the static pod. This can be a very tedious and painful task when the number of static pods becomes very large.
+
+Users can define Pod templates and upgrade models through YurtStaticSet CRD. The upgrade models support both OTA and AdvancedRollingUpdate kinds,
+thus easily meeting the upgrade needs of large-scale Static Pods. Also the Pod template in yurthub YurtAppSet CRD is used to
+install YurtHub component on the node when the node is joined. [#1261](https://github.com/openyurtio/openyurt/pull/1261), [#1168](https://github.com/openyurtio/openyurt/pull/1168), [#1172](https://github.com/openyurtio/openyurt/pull/1172)
+
+**NodePort Service supports nodepool isolation**
+
+In edge scenarios, users using the NodePort service expect to listen to nodePort ports only in a specified nodepools
+in order to prevent port conflicts and save edge resources.
+
+Users can specify the nodepools to listen to by adding annotation `nodeport.openyurt.io/listen` to the NodePort or
+LoadBalancer service, thus getting the nodepool isolation capability of the NodePort or LoadBalancer service. [#1183](https://github.com/openyurtio/openyurt/issues/1183), [#1209](https://github.com/openyurtio/openyurt/pull/1209)
+
+### Other Notable changes
+
+- improve image build efficiency by @Congrool in https://github.com/openyurtio/openyurt/pull/1191
+- support filter chain for filtering response data by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/1189
+- fix: re-list when target change by @LaurenceLiZhixin in https://github.com/openyurtio/openyurt/pull/1195
+- fix: yurt-coordinator cannot be rescheduled when its node fails (#1212) by @AndyEWang in https://github.com/openyurtio/openyurt/pull/1218
+- feat: merge yurtctl to e2e by @YTGhost in https://github.com/openyurtio/openyurt/pull/1219
+- support pass bootstrap-file to yurthub by @rambohe-ch in https://github.com/openyurtio/openyurt/pull/1333
+- add system proxy for docker run by @gnunu in https://github.com/openyurtio/openyurt/pull/1335
+- feat: add yurtadm renew certificate command by @YTGhost in https://github.com/openyurtio/openyurt/pull/1314
+- add a new way to create webhook by @JameKeal in https://github.com/openyurtio/openyurt/pull/1359
+- feat: support yurt-coordinator component work in specified namespace by @y-ykcir in https://github.com/openyurtio/openyurt/pull/1355
+- feat: add nodepool e2e by @huiwq1990 in https://github.com/openyurtio/openyurt/pull/1365
+- feat: support yurt-manager work in specified namespace by @y-ykcir in https://github.com/openyurtio/openyurt/pull/1367
+- support yurthub component work in specified namespace by @huweihuang in https://github.com/openyurtio/openyurt/pull/1366
+- support to specify enabled controllers by @xavier-hou in https://github.com/openyurtio/openyurt/pull/1388
+- feat: crd generate crds by @huiwq1990 in https://github.com/openyurtio/openyurt/pull/1389
+- add Yurtappdaemon e2e test by @theonefx in https://github.com/openyurtio/openyurt/pull/1406
+- fix generated crd name by @huiwq1990 in https://github.com/openyurtio/openyurt/pull/1408
+
+### Fixes
+
+- fix handle yurtcoordinator certificates in case of restarting by @batthebee in https://github.com/openyurtio/openyurt/pull/1187
+- make rename replace old dir by @LaurenceLiZhixin in https://github.com/openyurtio/openyurt/pull/1237
+- yurtadm minor version compatibility of kubelet and kubeadm by @YTGhost in https://github.com/openyurtio/openyurt/pull/1244
+- delete specific iptables while testing kube-proxy by @y-ykcir in https://github.com/openyurtio/openyurt/pull/1268
+- fix yurthub dnsPolicy when using yurt-coordinator by @JameKeal in https://github.com/openyurtio/openyurt/pull/1321
+- fix: yurt-controller-manager reboot cannot remove taint node.openyurt.io/unschedulable (#1233) by @AndyEWang in https://github.com/openyurtio/openyurt/pull/1337
+- fix daemonSet pod updater pointer error by @JameKeal in https://github.com/openyurtio/openyurt/pull/1340
+- bugfix for yurtappset by @theonefx in https://github.com/openyurtio/openyurt/pull/1391
+
+### Contributors
+
+**Thank you to everyone who contributed to this release!** ❤
+
+- [@batthebee](https://github.com/batthebee)
+- [@cndoit18](https://github.com/cndoit18)
+- [@fengshunli](https://github.com/fengshunli)
+- [@luc99hen](https://github.com/luc99hen)
+- [@frank-zsy](https://github.com/frank-zsy)
+- [@YTGhost](https://github.com/YTGhost)
+- [@Congrool](https://github.com/Congrool)
+- [@luckymrwang](https://github.com/luckymrwang)
+- [@AndyEWang](https://github.com/AndyEWang)
+- [@huiwq1990](https://github.com/huiwq1990)
+- [@njucjc](https://github.com/njucjc)
+- [@xavier-hou](https://github.com/xavier-hou)
+- [@kadisi](https://github.com/kadisi)
+- [@guoguodan](https://github.com/guoguodan)
+- [@JameKeal](https://github.com/JameKeal)
+- [@gnunu](https://github.com/gnunu)
+- [@y-ykcir](https://github.com/y-ykcir)
+- [@Lan-ce-lot](https://github.com/Lan-ce-lot)
+- [@River-sh](https://github.com/River-sh)
+- [@huweihuang](https://github.com/huweihuang)
+- [@lilongfeng0902](https://github.com/lilongfeng0902)
+- [@theonefx](https://github.com/theonefx)
+- [@fujitatomoya](https://github.com/fujitatomoya)
+- [@rambohe-ch](https://github.com/rambohe-ch)
+
+And thank you very much to everyone else not listed here who contributed in other ways like filing issues,
+giving feedback, helping users in community group, etc.
+
 ## v1.2.0
 
 ### What's New
@@ -9,18 +422,18 @@
 The original edge autonomy feature can make the pods on nodes un-evicted even if node crashed by adding annotation to node,
 and this feature is recommended to use for scenarios that pods should bind to node without recreation.
 After improving edge autonomy capability, when the reason of node NotReady is cloud-edge network off, pods will not be evicted
-because leader yurthub will help these offline nodes to proxy their heartbeats to the cloud via pool-coordinator component,
+because leader yurthub will help these offline nodes to proxy their heartbeats to the cloud via yurt-coordinator component,
 and pods will be evicted and recreated on other ready node if node crashed.
 
-By the way, The original edge autonomy capability by annotating node (with node.beta.openyurt.io/autonomy) will be kept as it is,
+By the way, the original edge autonomy capability by annotating node (with node.beta.openyurt.io/autonomy) will be kept as it is,
 which will influence all pods on autonomy nodes. And a new annotation (named apps.openyurt.io/binding) can be added to workload to
 enable the original edge autonomy capability for specified pod.
 
 **Reduce the control-plane traffic between cloud and edge**
 
-Based on the Pool-Coordinator in the nodePool, A leader Yurthub will be elected in the nodePool. Leader Yurthub will
-list/watch pool-scope data(like endpoints/endpointslices) from cloud and write into pool-coordinator. then all components(like kube-proxy/coredns)
-in the nodePool will get pool-scope data from pool-coordinator instead of cloud kube-apiserver, so large volume control-plane traffic
+Based on the Yurt-Coordinator in the nodePool, A leader Yurthub will be elected in the nodePool. Leader Yurthub will
+list/watch pool-scope data(like endpoints/endpointslices) from cloud and write into yurt-coordinator. then all components(like kube-proxy/coredns)
+in the nodePool will get pool-scope data from yurt-coordinator instead of cloud kube-apiserver, so large volume control-plane traffic
 will be reduced.
 
 **Use raven component to replace yurt-tunnel component**
@@ -351,7 +764,7 @@ Thanks to all contributors for maintaining docs for OpenYurt. ([@huangyuqi](http
 - yurt-edgex-manager
 
   Yurt-edgex-manager enable OpenYurt to be able to manage the EdgeX lifecycle. Each EdgeX CR (Custom Resource) stands for an EdgeX instance.
-Users can deploy/update/delete EdgeX in OpenYurt cluster by operate the EdgeX CR directly. ([yurt-edgex-manager](https://github.com/openyurtio/yurt-edgex-manager), [@yixingjia](https://github.com/yixingjia), [@lwmqwer](https://github.com/lwmqwer))
+Users can deploy/update/delete EdgeX in OpenYurt cluster by operating the EdgeX CR directly. ([yurt-edgex-manager](https://github.com/openyurtio/yurt-edgex-manager), [@yixingjia](https://github.com/yixingjia), [@lwmqwer](https://github.com/lwmqwer))
 
 - yurt-device-controller
 
@@ -404,7 +817,7 @@ Please refer to the [proposal doc](https://github.com/openyurtio/openyurt/blob/m
 
 **Support Pods use `InClusterConfig` access kube-apiserver through yurthub**
 
-Many users in OpenYurt community have requested that support InClusterConfig for pods to access kube-apiserver through yurthub on edge nodes. so pods on cloud can move to edge cluster smoothly. so we add the following features.
+Many users in OpenYurt community have requested that support InClusterConfig for pods to access kube-apiserver through yurthub on edge nodes. so pods on cloud can move to edge cluster smoothly. So we add the following features.
 -  yurthub supports https serve.
 - env `KUBERNETES_SERVICE_HOST` and `KUBERNETES_SERVICE_PORT` should be the address that yurthub listening, like `169.254.2.1:10261`
 

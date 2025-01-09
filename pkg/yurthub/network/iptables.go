@@ -40,9 +40,9 @@ type IptablesManager struct {
 }
 
 func NewIptablesManager(dummyIfIP, dummyIfPort string) *IptablesManager {
-	protocol := iptables.ProtocolIpv4
+	protocol := iptables.ProtocolIPv4
 	if utilnet.IsIPv6String(dummyIfIP) {
-		protocol = iptables.ProtocolIpv6
+		protocol = iptables.ProtocolIPv6
 	}
 	execer := exec.New()
 	iptInterface := iptables.New(execer, protocol)
@@ -83,7 +83,7 @@ func (im *IptablesManager) CleanUpIptablesRules() error {
 		err := im.iptables.DeleteRule(rule.table, rule.chain, rule.args...)
 		if err != nil {
 			errs = append(errs, err)
-			klog.Errorf("failed to delete iptables rule(%s -t %s %s %s), %v", rule.pos, rule.table, rule.chain, strings.Join(rule.args, " "), err)
+			klog.Errorf("could not delete iptables rule(%s -t %s %s %s), %v", rule.pos, rule.table, rule.chain, strings.Join(rule.args, " "), err)
 		}
 	}
 	return utilerrors.NewAggregate(errs)

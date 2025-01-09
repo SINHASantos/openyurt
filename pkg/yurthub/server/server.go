@@ -21,12 +21,19 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/informers"
+	"k8s.io/klog/v2"
 
 	"github.com/openyurtio/openyurt/cmd/yurthub/app/config"
-	"github.com/openyurtio/openyurt/pkg/profile"
+	"github.com/openyurtio/openyurt/pkg/util/profile"
+	"github.com/openyurtio/openyurt/pkg/yurthub/certificate"
 	"github.com/openyurtio/openyurt/pkg/yurthub/kubernetes/rest"
 	ota "github.com/openyurtio/openyurt/pkg/yurthub/otaupdate"
+	otautil "github.com/openyurtio/openyurt/pkg/yurthub/otaupdate/util"
 	"github.com/openyurtio/openyurt/pkg/yurthub/util"
 )
 
@@ -35,6 +42,7 @@ func RunYurtHubServers(cfg *config.YurtHubConfiguration,
 	proxyHandler http.Handler,
 	rest *rest.RestConfigManager,
 	stopCh <-chan struct{}) error {
+
 	hubServerHandler := mux.NewRouter()
 	registerHandlers(hubServerHandler, cfg, rest)
 
@@ -62,11 +70,16 @@ func RunYurtHubServers(cfg *config.YurtHubConfiguration,
 	}
 
 	if cfg.YurtHubSecureProxyServerServing != nil {
-		if _, err := cfg.YurtHubSecureProxyServerServing.Serve(proxyHandler, 0, stopCh); err != nil {
+		if _, _, err := cfg.YurtHubSecureProxyServerServing.Serve(proxyHandler, 0, stopCh); err != nil {
 			return err
 		}
 	}
 
+	for name, hook := range cfg.PostStartHooks {
+		if err := hook(); err != nil {
+			return errors.Wrapf(err, "failed to run post start hooks: %s", name)
+		}
+	}
 	return nil
 }
 
@@ -77,6 +90,7 @@ func registerHandlers(c *mux.Router, cfg *config.YurtHubConfiguration, rest *res
 
 	// register handler for health check
 	c.HandleFunc("/v1/healthz", healthz).Methods("GET")
+	c.Handle("/v1/readyz", readyz(cfg.CertManager)).Methods("GET")
 
 	// register handler for profile
 	if cfg.EnableProfiling {
@@ -87,7 +101,11 @@ func registerHandlers(c *mux.Router, cfg *config.YurtHubConfiguration, rest *res
 	c.Handle("/metrics", promhttp.Handler())
 
 	// register handler for ota upgrade
-	c.Handle("/pods", ota.GetPods(cfg.StorageWrapper)).Methods("GET")
+	if cfg.WorkingMode == util.WorkingModeEdge {
+		c.Handle("/pods", ota.GetPods(cfg.StorageWrapper)).Methods("GET")
+	} else {
+		c.Handle("/pods", getPodList(cfg.SharedFactory, cfg.NodeName)).Methods("GET")
+	}
 	c.Handle("/openyurt.io/v1/namespaces/{ns}/pods/{podname}/upgrade",
 		ota.HealthyCheck(rest, cfg.NodeName, ota.UpdatePod)).Methods("POST")
 }
@@ -96,4 +114,41 @@ func registerHandlers(c *mux.Router, cfg *config.YurtHubConfiguration, rest *res
 func healthz(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "OK")
+}
+
+// readyz is used for checking certificates are ready or not
+func readyz(certificateMgr certificate.YurtCertificateManager) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ready := certificateMgr.Ready()
+		if ready {
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, "OK")
+		} else {
+			http.Error(w, "certificates are not ready", http.StatusInternalServerError)
+		}
+	})
+}
+
+func getPodList(sharedFactory informers.SharedInformerFactory, nodeName string) http.Handler {
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		podLister := sharedFactory.Core().V1().Pods().Lister()
+		podList, err := podLister.List(labels.Everything())
+		if err != nil {
+			klog.Errorf("get pods key failed, %v", err)
+			otautil.WriteErr(w, "Get pods key failed", http.StatusInternalServerError)
+			return
+		}
+		pl := new(corev1.PodList)
+		for i := range podList {
+			pl.Items = append(pl.Items, *podList[i])
+		}
+
+		data, err := otautil.EncodePods(pl)
+		if err != nil {
+			klog.Errorf("Encode pod list failed, %v", err)
+			otautil.WriteErr(w, "Encode pod list failed", http.StatusInternalServerError)
+		}
+		otautil.WriteJSONResponse(w, data)
+	})
 }
